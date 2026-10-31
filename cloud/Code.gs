@@ -11,9 +11,10 @@
  */
 
 // 存取密碼：留空時，第一次從 App 按「連線」所輸入的密碼（至少 6 個字）會被記住成為存取密碼，
-// 存在「專案設定 → 指令碼屬性 → ACCESS_KEY」；要換密碼就刪掉該屬性再重新連線。
+// 存在「專案設定 → 指令碼屬性 → ACCESS_KEY_V2」；要換密碼就刪掉該屬性（記得按儲存）再重新連線。
 // 也可以直接在下面填寫（填了就以這裡為準）。
 const ACCESS_KEY = "";
+const KEY_PROP = "ACCESS_KEY_V2"; // 2026-10-31 重設：舊的 ACCESS_KEY 屬性不再使用
 
 const APP = "kitchen-sop";
 const CHUNK = 45000; // 每格上限 5 萬字，照片分段存放
@@ -54,7 +55,7 @@ function doPost(e) {
 }
 
 function accessKey_() {
-  return String(ACCESS_KEY || PropertiesService.getScriptProperties().getProperty("ACCESS_KEY") || "");
+  return String(ACCESS_KEY || PropertiesService.getScriptProperties().getProperty(KEY_PROP) || "");
 }
 
 /** 還沒有存取密碼時，第一次連線（ping）的密碼成為存取密碼 */
@@ -65,7 +66,7 @@ function claimKey_(req) {
   lock.waitLock(10000);
   try {
     if (accessKey_()) return false; // 同時有人先設定了
-    PropertiesService.getScriptProperties().setProperty("ACCESS_KEY", k);
+    PropertiesService.getScriptProperties().setProperty(KEY_PROP, k);
     return true;
   } finally {
     lock.releaseLock();

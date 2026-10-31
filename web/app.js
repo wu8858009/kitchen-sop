@@ -2,7 +2,7 @@
 (() => {
   'use strict';
   const U = window.KUnits;
-  const APP_VERSION = '1.1.0';
+  const APP_VERSION = '1.2.0';
   const IS_DESKTOP = /[?&]desktop=1\b/.test(location.search);
 
   const $ = (s, el = document) => el.querySelector(s);
@@ -874,7 +874,7 @@
       <section class="card">
         <h2>☁ Google 雲端同步</h2>
         ${db.cloud ? `
-          <p>已連線到你的 Google 試算表，修改會自動同步到其他裝置。</p>
+          <p>已連線到你的 Google 試算表（即時同步）：修改約 1 秒內上傳，其他裝置約 10 秒內更新。</p>
           <p class="small muted" id="cloudInfo"></p>
           <div class="btn-row">
             <button class="btn primary" data-act="cloud-sync">立即同步</button>
@@ -976,6 +976,7 @@
   // 本機資料是離線快取；有設定雲端時，修改後自動上傳，並定期檢查雲端版本號。
   // 版本衝突時以「每道食譜的更新時間」合併，刪除用墓碑（deleted）傳遞。
   let cloudBusy = false, cloudAgain = false, cloudTimer = null, cloudState = { s: 'off', msg: '' };
+  const LIVE_POLL_MS = 10000; // 即時同步：App 顯示中時每 10 秒檢查雲端版本
 
   function hashStr(str) {
     let h1 = 0xdeadbeef, h2 = 0x41c6ce57;
@@ -1072,7 +1073,7 @@
     if (info) info.textContent = `${map[s][1]}${msg ? '：' + msg : ''}${db.sync.at ? '　上次同步 ' + new Date(db.sync.at).toLocaleString() : ''}`;
   }
 
-  function scheduleCloudSync(delay = 1500) {
+  function scheduleCloudSync(delay = 800) {
     clearTimeout(cloudTimer);
     cloudTimer = setTimeout(cloudSync, delay);
   }
@@ -1082,12 +1083,13 @@
     if (!db.cloud || loadFailed) return setSync('off');
     if (cloudBusy) { cloudAgain = true; return; }
     cloudBusy = true;
-    setSync('busy');
+    if (db.sync.dirty || cloudState.s !== 'ok') setSync('busy');
     try {
       for (let attempt = 0; attempt < 5; attempt++) {
         if (!db.sync.dirty) {
           const { rev } = await cloudCall({ a: 'rev' });
           if (rev !== db.sync.rev) {
+            setSync('busy');
             const L = await cloudCall({ a: 'load' });
             applyRemote(L, db.sync.dirty); // 下載期間若有新修改就改用合併
             if (db.sync.dirty) continue;
@@ -1095,6 +1097,7 @@
           break;
         }
         const seq = changeSeq;
+        setSync('busy');
         const r = await pushOnce(db.sync.force);
         if (r.ok) {
           db.sync.rev = r.rev;
@@ -1328,6 +1331,7 @@
   document.addEventListener('visibilitychange', async () => {
     if (!document.hidden && wakeLock === null && $('[data-act="wake"].on')) { try { wakeLock = await navigator.wakeLock.request('screen'); } catch (e) { /* ignore */ } }
     if (!document.hidden) { tick(); if (db && db.cloud) cloudSync(); }
+    else flush();
   });
 
   // ---------------------------------------------------------------- 啟動
@@ -1343,7 +1347,7 @@
     window.addEventListener('hashchange', onHash);
     render();
     if (db.cloud) cloudSync();
-    setInterval(() => { if (!document.hidden && db.cloud) cloudSync(); }, 60000);
+    setInterval(() => { if (!document.hidden && db.cloud && !cloudBusy) cloudSync(); }, LIVE_POLL_MS);
     window.addEventListener('online', () => { if (db.cloud) cloudSync(); });
     document.body.classList.add('ready');
     if (!IS_DESKTOP && 'serviceWorker' in navigator && /^https?:$/.test(location.protocol)) navigator.serviceWorker.register('sw.js').catch(() => {});
