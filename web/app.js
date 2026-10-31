@@ -2,7 +2,7 @@
 (() => {
   'use strict';
   const U = window.KUnits;
-  const APP_VERSION = '1.2.0';
+  const APP_VERSION = '1.3.0';
   const IS_DESKTOP = /[?&]desktop=1\b/.test(location.search);
 
   const $ = (s, el = document) => el.querySelector(s);
@@ -20,6 +20,22 @@
     if (v === '' || v == null) return null;
     const n = typeof v === 'number' ? v : U.parseQty(String(v));
     return n == null || !isFinite(n) ? null : n;
+  }
+
+  // 倍數輸入：2、1.5、1/3、/3、÷3、除3、x2、×2、*2（可加「倍」）
+  function parseMult(v) {
+    if (typeof v === 'number') return v > 0 && isFinite(v) ? v : null;
+    const s = String(v == null ? '' : v).trim().replace(/倍$/, '').trim();
+    let m = s.match(/^(?:[÷\/／]|除以?)\s*(.+)$/);
+    if (m) { const d = num(m[1]); return d > 0 ? 1 / d : null; }
+    m = s.match(/^[x×*＊Ｘｘ]\s*(.+)$/i);
+    const n = num(m ? m[1] : s);
+    return n > 0 ? n : null;
+  }
+  // 小於 1 的倍數盡量顯示成分數（1/3、2/3、3/4）
+  function multText(m) {
+    if (m > 0 && m < 1) for (let d = 2; d <= 12; d++) { const n = Math.round(m * d); if (n && Math.abs(m * d - n) < 1e-6) return `${n}/${d}`; }
+    return fmt(m);
   }
 
   // ---------------------------------------------------------------- 儲存
@@ -372,7 +388,7 @@
   // ---------------------------------------------------------------- 食譜檢視（倍數計算）
   const viewState = {};
   const vs = id => viewState[id] || (viewState[id] = { mult: 1, checked: new Set(), stepsDone: new Set() });
-  const multLabel = m => (m === 0.5 ? '½' : m === 0.25 ? '¼' : fmt(m));
+  const MULT_CHIPS = [[1 / 4, '÷4'], [1 / 3, '÷3'], [1 / 2, '÷2'], [1, '×1'], [1.5, '×1.5'], [2, '×2'], [3, '×3'], [4, '×4'], [5, '×5'], [10, '×10']];
 
   function viewRecipe(id) {
     const r = getRecipe(id);
@@ -400,13 +416,13 @@
 
       <section class="card scale-card no-print">
         <div class="scale-row">
-          <label class="fld">倍數<input id="mult" type="number" inputmode="decimal" step="any" min="0" value="${fmt(st.mult)}"></label>
+          <label class="fld">倍數<input id="mult" type="text" autocomplete="off" placeholder="2 或 /3" value="${multText(st.mult)}"></label>
           <span class="muted">或</span>
           <label class="fld">目標份量<span class="inline"><input id="target" type="number" inputmode="decimal" step="any" min="0" value="${fmt(r.yieldQty * st.mult)}"><span>${esc(r.yieldUnit)}</span></span></label>
           <label class="fld">單位顯示${unitModeSelect('unitMode')}</label>
         </div>
-        <div class="chips" id="multChips">${[0.5, 1, 1.5, 2, 3, 4, 5, 10].map(m => `<button class="chip" data-act="mult" data-v="${m}">×${multLabel(m)}</button>`).join('')}</div>
-        <p class="hint">也可以點食材旁的 ⚖，輸入手邊現有的量，自動反推倍數。</p>
+        <div class="chips" id="multChips">${MULT_CHIPS.map(([m, t]) => `<button class="chip" data-act="mult" data-v="${m}">${t}</button>`).join('')}</div>
+        <p class="hint">倍數可輸入 2、1.5，或用「/3」「÷3」「1/3」表示除以幾倍。也可以點食材旁的 ⚖，輸入手邊現有的量，自動反推倍數。</p>
       </section>
       <div class="print-only print-scale" id="printScale"></div>
 
@@ -437,11 +453,11 @@
     if (!r || !$('#ing')) return;
     const st = vs(r.id), mult = st.mult, mode = db.settings.unitMode, pm = priceMap();
     const mi = $('#mult'), ti = $('#target');
-    if (mi && document.activeElement !== mi) mi.value = fmt(mult);
+    if (mi && document.activeElement !== mi) mi.value = multText(mult);
     if (ti && document.activeElement !== ti) ti.value = fmt(r.yieldQty * mult);
-    $$('#multChips .chip').forEach(c => c.classList.toggle('on', +c.dataset.v === mult));
-    $('#ingSub').textContent = mult === 1 ? '（基準份量）' : `（× ${fmt(mult)}，${fmt(r.yieldQty * mult)} ${r.yieldUnit}）`;
-    $('#printScale').textContent = `倍數 × ${fmt(mult)}　份量 ${fmt(r.yieldQty * mult)} ${r.yieldUnit}　列印時間 ${new Date().toLocaleString()}`;
+    $$('#multChips .chip').forEach(c => c.classList.toggle('on', Math.abs(+c.dataset.v - mult) < 1e-6));
+    $('#ingSub').textContent = mult === 1 ? '（基準份量）' : `（× ${multText(mult)}，${fmt(r.yieldQty * mult)} ${r.yieldUnit}）`;
+    $('#printScale').textContent = `倍數 × ${multText(mult)}　份量 ${fmt(r.yieldQty * mult)} ${r.yieldUnit}　列印時間 ${new Date().toLocaleString()}`;
 
     let html = '<table class="ing-table"><tbody>', lastGroup = null;
     for (const i of r.ingredients) {
@@ -474,7 +490,7 @@
 
   function setMult(m) {
     if (!(m > 0) || !isFinite(m)) return;
-    vs(route.id).mult = Math.round(m * 10000) / 10000;
+    vs(route.id).mult = Math.round(m * 1e8) / 1e8;
     updateRecipeComputed();
   }
 
@@ -495,7 +511,7 @@
     const q = U.convert(a.qty, a.unit || i.unit, i.unit);
     if (q == null) return toast(`「${a.unit}」無法換算成「${i.unit}」`, 'err');
     setMult(q / i.qty);
-    toast(`倍數已設為 × ${fmt(vs(r.id).mult)}`);
+    toast(`倍數已設為 × ${multText(vs(r.id).mult)}`);
   }
 
   // ---------------------------------------------------------------- 計時器
@@ -779,7 +795,7 @@
         <h2>菜色與倍數</h2>
         <div class="plan-items">${db.plan.map((p, k) => { const r = getRecipe(p.recipeId); return `<div class="plan-item">
           <a class="pname" href="#/r/${encodeURIComponent(r.id)}">${esc(r.name)}</a>
-          <label class="inline">×<input type="number" step="any" min="0" inputmode="decimal" data-plan="${k}" value="${fmt(p.mult)}"></label>
+          <label class="inline">×<input type="text" autocomplete="off" placeholder="2 或 /3" data-plan="${k}" value="${multText(p.mult)}"></label>
           <span class="muted small" id="py${k}">${fmt(r.yieldQty * p.mult)} ${esc(r.yieldUnit)}</span>
           <button class="icon danger no-print" data-act="plan-rm" data-k="${k}" title="移除">✕</button></div>`; }).join('') || '<p class="muted">尚未加入菜色。</p>'}</div>
         ${avail.length ? `<div class="plan-add no-print"><select id="planAdd">${avail.map(r => `<option value="${esc(r.id)}">${esc(r.name)}</option>`).join('')}</select>
@@ -1168,7 +1184,7 @@
     switch (act) {
       case 'cat': listFilter.cat = el.dataset.v; $$('#cats .chip').forEach(c => c.classList.toggle('on', c === el)); updateList(); break;
       case 'seed': seed(); break;
-      case 'mult': setMult(+el.dataset.v); break;
+      case 'mult': setMult(+el.dataset.v); { const mi = $('#mult'); if (mi) mi.value = multText(vs(route.id).mult); } break;
       case 'check': { const s = vs(route.id).checked; el.checked ? s.add(el.dataset.i) : s.delete(el.dataset.i); el.closest('tr').classList.toggle('done', el.checked); break; }
       case 'plan-check': el.closest('tr').classList.toggle('done', el.checked); break;
       case 'uncheck': vs(route.id).checked.clear(); updateRecipeComputed(); break;
@@ -1193,7 +1209,7 @@
         const p = db.plan.find(x => x.recipeId === id);
         if (p) p.mult = mult; else db.plan.push({ recipeId: id, mult });
         persist();
-        toast(`已加入備料單（× ${fmt(mult)}）`);
+        toast(`已加入備料單（× ${multText(mult)}）`);
         break;
       }
       case 'dup': {
@@ -1289,7 +1305,7 @@
     const t = e.target;
     if (t.id === 'q') { listFilter.q = t.value; updateList(); return; }
     if (t.id === 'pq') { priceFilter = t.value; const pos = t.selectionStart; render(); const n = $('#pq'); n.focus(); n.setSelectionRange(pos, pos); return; }
-    if (t.id === 'mult') { const m = num(t.value); if (m > 0) setMult(m); return; }
+    if (t.id === 'mult') { const m = parseMult(t.value); if (m) setMult(m); return; }
     if (t.id === 'target') { const r = getRecipe(route.id), v = num(t.value); if (r && v > 0) setMult(v / r.yieldQty); return; }
     if (t.dataset.bind && draft) {
       setPath(draft.r, t.dataset.bind, t.type === 'checkbox' ? t.checked : t.value);
@@ -1298,7 +1314,7 @@
       return;
     }
     if (t.dataset.plan != null) {
-      const k = +t.dataset.plan, m = num(t.value), p = db.plan[k];
+      const k = +t.dataset.plan, m = parseMult(t.value), p = db.plan[k];
       if (p && m > 0) { p.mult = m; persist(); const r = getRecipe(p.recipeId); $('#py' + k).textContent = `${fmt(r.yieldQty * m)} ${r.yieldUnit}`; updatePlanTotal(); }
       return;
     }
