@@ -13,7 +13,7 @@
 <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
 <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
 <title>廚房 SOP 食譜</title>
-<link rel="stylesheet" href="styles.css?v=5">
+<link rel="stylesheet" href="styles.css?v=6">
 </head>
 <body>
 <header class="topbar">
@@ -26,13 +26,15 @@
     <a href="#/settings" data-tab="settings"><span class="ti">⚙️</span><span>設定</span></a>
   </nav>
   <button id="syncPill" class="sync-pill" data-act="cloud-pill" hidden></button>
+  <button id="viBtn" class="vi-btn" data-act="vi-toggle" data-novi title="Tiếng Việt">VI</button>
 </header>
 <main id="app"><div class="page"><p class="muted">載入中…</p></div></main>
 <div id="timers" class="timers" aria-live="polite"></div>
 <div id="toast" role="status"></div>
 <div id="modal"></div>
-<script src="config.js?v=5"></script>
-<script src="units.js?v=5"></script>
-<script src="app.js?v=5"></script>
+<script src="config.js?v=6"></script>
+<script src="units.js?v=6"></script>
+<script src="vi.js?v=6"></script>
+<script src="app.js?v=6"></script>
 </body>
 </html>

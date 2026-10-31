@@ -4,6 +4,7 @@
  *
  * 網頁版與 Windows 版用 POST { a: 動作, key: 存取密碼, ... } 呼叫這個「網頁應用程式」：
  *   ping / rev / load / save（save 帶 baseRev，版本不符時回 conflict，由前端合併後再送）
+ *   translate（用 Google 翻譯把中文轉成越南文）
  * 資料以一般表格存放在「食譜」「食材」「步驟」「單價」工作表，可以直接在試算表裡查看或修改；
  * 手動修改後 onEdit 會更新版本號，各裝置下次同步時就會讀到。
  *
@@ -20,9 +21,9 @@ const APP = "kitchen-sop";
 const CHUNK = 45000; // 每格上限 5 萬字，照片分段存放
 
 const SHEETS = {
-  recipes: { name: "食譜", cols: ["id", "名稱", "分類", "基準份量", "份量單位", "備註", "照片", "建立時間", "更新時間"], text: [1, 2, 3, 5, 6, 7] },
-  ings: { name: "食材", cols: ["食譜id", "食譜名稱", "順序", "分組", "食材", "數量", "單位", "備註", "id"], text: [1, 2, 4, 5, 7, 8, 9] },
-  steps: { name: "步驟", cols: ["食譜id", "食譜名稱", "順序", "步驟說明", "計時(分)", "重點", "id"], text: [1, 2, 4, 6, 7] },
+  recipes: { name: "食譜", cols: ["id", "名稱", "分類", "基準份量", "份量單位", "備註", "照片", "建立時間", "更新時間", "名稱(越)", "分類(越)", "備註(越)"], text: [1, 2, 3, 5, 6, 7, 10, 11, 12] },
+  ings: { name: "食材", cols: ["食譜id", "食譜名稱", "順序", "分組", "食材", "數量", "單位", "備註", "id", "分組(越)", "食材(越)", "備註(越)"], text: [1, 2, 4, 5, 7, 8, 9, 10, 11, 12] },
+  steps: { name: "步驟", cols: ["食譜id", "食譜名稱", "順序", "步驟說明", "計時(分)", "重點", "id", "步驟說明(越)"], text: [1, 2, 4, 6, 7, 8] },
   prices: { name: "單價", cols: ["id", "食材", "價格", "每", "單位"], text: [1, 2, 5] },
   photos: { name: "照片(系統)", cols: ["hash", "片段數"], text: [1] },
   sys: { name: "系統", cols: ["項目", "值"], text: [1, 2] },
@@ -47,6 +48,7 @@ function doPost(e) {
       case "rev": return out_({ ok: true, rev: rev_(ss) });
       case "load": return out_(load_(ss));
       case "save": return out_(save_(ss, req));
+      case "translate": return out_(translate_(req));
     }
     return out_({ ok: false, error: "未知的動作：" + req.a });
   } catch (err) {
@@ -88,6 +90,7 @@ function out_(o) {
 
 // ---------------------------------------------------------------- 工作表工具
 
+const checked_ = {};
 function sheet_(ss, key) {
   const def = SHEETS[key];
   let sh = ss.getSheetByName(def.name);
@@ -97,7 +100,16 @@ function sheet_(ss, key) {
     sh.setFrozenRows(1);
     // 文字欄設成純文字，避免「1/2」被自動轉成日期
     def.text.forEach((c) => sh.getRange(1, c, 1000, 1).setNumberFormat("@"));
+  } else if (!checked_[key] && key !== "photos") {
+    // 舊版工作表少了後來新增的欄位（例如越南文）：補上標題
+    const head = sh.getRange(1, 1, 1, def.cols.length).getValues()[0];
+    const miss = def.cols.some((c, i) => head[i] === "" || head[i] == null);
+    if (miss) {
+      sh.getRange(1, 1, 1, def.cols.length).setValues([def.cols]).setFontWeight("bold");
+      def.text.forEach((c) => { if (head[c - 1] === "" || head[c - 1] == null) sh.getRange(1, c, Math.max(1000, sh.getMaxRows()), 1).setNumberFormat("@"); });
+    }
   }
+  checked_[key] = true;
   return sh;
 }
 
@@ -149,6 +161,7 @@ function load_(ss) {
   const recipes = rows_(ss, "recipes").filter((r) => r[0] !== "").map((r) => ({
     id: str_(r[0]), name: str_(r[1]), category: str_(r[2]), yieldQty: num_(r[3]), yieldUnit: str_(r[4]),
     notes: str_(r[5]), photoHash: str_(r[6]), createdAt: num_(r[7]), updatedAt: num_(r[8]),
+    nameVi: str_(r[9]), categoryVi: str_(r[10]), notesVi: str_(r[11]),
     ingredients: [], steps: [],
   }));
   const byId = {};
@@ -156,11 +169,11 @@ function load_(ss) {
 
   const ings = rows_(ss, "ings").filter((r) => byId[str_(r[0])] && (r[4] !== "" || r[5] !== ""));
   ings.sort((a, b) => (num_(a[2]) || 0) - (num_(b[2]) || 0));
-  ings.forEach((r) => byId[str_(r[0])].ingredients.push({ id: str_(r[8]), group: str_(r[3]), name: str_(r[4]), qty: num_(r[5]), unit: str_(r[6]), note: str_(r[7]) }));
+  ings.forEach((r) => byId[str_(r[0])].ingredients.push({ id: str_(r[8]), group: str_(r[3]), name: str_(r[4]), qty: num_(r[5]), unit: str_(r[6]), note: str_(r[7]), groupVi: str_(r[9]), nameVi: str_(r[10]), noteVi: str_(r[11]) }));
 
   const steps = rows_(ss, "steps").filter((r) => byId[str_(r[0])] && r[3] !== "");
   steps.sort((a, b) => (num_(a[2]) || 0) - (num_(b[2]) || 0));
-  steps.forEach((r) => byId[str_(r[0])].steps.push({ id: str_(r[6]), text: str_(r[3]), minutes: num_(r[4]), key: isTrue_(r[5]) }));
+  steps.forEach((r) => byId[str_(r[0])].steps.push({ id: str_(r[6]), text: str_(r[3]), minutes: num_(r[4]), key: isTrue_(r[5]), textVi: str_(r[7]) }));
 
   const prices = rows_(ss, "prices").filter((r) => r[1] !== "").map((r) => ({ id: str_(r[0]), name: str_(r[1]), price: num_(r[2]), perQty: num_(r[3]) || 1, perUnit: str_(r[4]) }));
 
@@ -208,9 +221,9 @@ function save_(ss, req) {
 
     const recipeRows = [], ingRows = [], stepRows = [];
     recipes.forEach((r) => {
-      recipeRows.push([str_(r.id), str_(r.name), str_(r.category), num_(r.yieldQty) || 1, str_(r.yieldUnit), str_(r.notes), str_(r.photoHash), date_(r.createdAt), date_(r.updatedAt)]);
-      (r.ingredients || []).forEach((i, k) => ingRows.push([str_(r.id), str_(r.name), k + 1, str_(i.group), str_(i.name), i.qty == null ? "" : Number(i.qty), str_(i.unit), str_(i.note), str_(i.id)]));
-      (r.steps || []).forEach((s, k) => stepRows.push([str_(r.id), str_(r.name), k + 1, str_(s.text), s.minutes == null ? "" : Number(s.minutes), s.key ? "是" : "", str_(s.id)]));
+      recipeRows.push([str_(r.id), str_(r.name), str_(r.category), num_(r.yieldQty) || 1, str_(r.yieldUnit), str_(r.notes), str_(r.photoHash), date_(r.createdAt), date_(r.updatedAt), str_(r.nameVi), str_(r.categoryVi), str_(r.notesVi)]);
+      (r.ingredients || []).forEach((i, k) => ingRows.push([str_(r.id), str_(r.name), k + 1, str_(i.group), str_(i.name), i.qty == null ? "" : Number(i.qty), str_(i.unit), str_(i.note), str_(i.id), str_(i.groupVi), str_(i.nameVi), str_(i.noteVi)]));
+      (r.steps || []).forEach((s, k) => stepRows.push([str_(r.id), str_(r.name), k + 1, str_(s.text), s.minutes == null ? "" : Number(s.minutes), s.key ? "是" : "", str_(s.id), str_(s.textVi)]));
     });
     const priceRows = (Array.isArray(d.prices) ? d.prices : []).map((p) => [str_(p.id), str_(p.name), p.price == null ? "" : Number(p.price), Number(p.perQty) || 1, str_(p.perUnit)]);
 
@@ -246,6 +259,19 @@ function save_(ss, req) {
   } finally {
     lock.releaseLock();
   }
+}
+
+// ---------------------------------------------------------------- 翻譯
+
+/** { texts: [中文…] } → { vi: [越南文…] }；一次最多 200 段 */
+function translate_(req) {
+  const texts = (Array.isArray(req.texts) ? req.texts : []).slice(0, 200);
+  const vi = texts.map((t) => {
+    const s = String(t == null ? "" : t).trim();
+    if (!s) return "";
+    try { return LanguageApp.translate(s, "zh-TW", "vi"); } catch (e) { return ""; }
+  });
+  return { ok: true, vi: vi };
 }
 
 // ---------------------------------------------------------------- 在試算表手動修改時
