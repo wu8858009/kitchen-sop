@@ -2,7 +2,7 @@
 (() => {
   'use strict';
   const U = window.KUnits;
-  const APP_VERSION = '1.5.1';
+  const APP_VERSION = '1.6.0';
   const IS_DESKTOP = /[?&]desktop=1\b/.test(location.search);
 
   const $ = (s, el = document) => el.querySelector(s);
@@ -912,10 +912,10 @@
       const tools = `<button class="icon" data-act="cheat-mv" data-k="${k}" data-d="-1" title="上移">↑</button><button class="icon" data-act="cheat-mv" data-k="${k}" data-d="1" title="下移">↓</button>
         <button class="icon danger" data-act="cheat-rm" data-k="${k}" title="移除">✕</button>`;
       if (it.type === 'note') return `<div class="cheat-item note">
-        <div class="ci-row"><input type="text" placeholder="卡片標題（例如：出餐順序、注意事項）" data-cheat-note="${k}" data-f="title" value="${esc(it.title || '')}">${tools}</div>
+        <div class="ci-row">${DRAG}<input type="text" placeholder="卡片標題（例如：出餐順序、注意事項）" data-cheat-note="${k}" data-f="title" value="${esc(it.title || '')}">${tools}</div>
         <textarea rows="3" placeholder="內容，一行一點" data-cheat-note="${k}" data-f="text">${esc(it.text || '')}</textarea></div>`;
       const r = getRecipe(it.recipeId);
-      return `<div class="cheat-item"><div class="ci-row"><span class="pname">${esc(r.name)}</span>
+      return `<div class="cheat-item"><div class="ci-row">${DRAG}<span class="pname">${esc(r.name)}</span>
         <label class="inline">×<input type="text" autocomplete="off" placeholder="2 或 /3" data-cheat-mult="${k}" value="${multText(it.mult)}"></label>
         <span class="muted small" id="cy${k}">${fmt(r.yieldQty * it.mult)} ${esc(r.yieldUnit)}</span>${tools}</div></div>`;
     }).join('');
@@ -925,6 +925,7 @@
       <p class="muted no-print">把食譜依倍數濃縮成精簡卡片（份量、食材用量、重點步驟），列印後可剪下貼在工作台；也能加自訂文字卡。</p>
       <section class="card no-print">
         <h2>卡片</h2>
+        ${c.items.length > 1 ? '<p class="hint">按住 ⠿ 拖曳可以調整卡片順序（下方預覽的卡片也可以直接拖曳）。</p>' : ''}
         <div class="cheat-items">${items || '<p class="muted">尚未加入卡片。</p>'}</div>
         <div class="plan-add">
           ${avail.length ? `<select id="cheatAdd">${avail.map(r => `<option value="${esc(r.id)}">${esc(r.name)}</option>`).join('')}</select>
@@ -947,12 +948,61 @@
     </div>`;
   }
 
+  const DRAG = '<span class="drag no-print" data-drag title="拖曳調整順序">⠿</span>';
+
+  // 拖曳排序（滑鼠與觸控都用 pointer 事件）：拖動時直接移動畫面上的元素，放開後才寫回資料
+  function startDrag(e, handle) {
+    const box = handle.closest('.cheat-items, #cheatCards');
+    const sel = box.id === 'cheatCards' ? '.cheat-card' : '.cheat-item';
+    const item = handle.closest(sel), list = () => [...box.querySelectorAll(sel)];
+    const from = list().indexOf(item);
+    if (from < 0) return;
+    e.preventDefault();
+    item.classList.add('dragging');
+    const move = ev => {
+      const edge = 60, h = window.innerHeight;
+      if (ev.clientY < edge) window.scrollBy(0, -12); else if (ev.clientY > h - edge) window.scrollBy(0, 12);
+      const el = document.elementFromPoint(ev.clientX, ev.clientY);
+      const over = el && el.closest(sel);
+      if (!over || over === item || over.parentNode !== box) return;
+      // 換位置後指標要仍在被拖曳的卡片上，否則卡片高度不同時會來回跳
+      const r = over.getBoundingClientRect(), ir = item.getBoundingClientRect();
+      const down = list().indexOf(over) > list().indexOf(item);
+      const sameRow = Math.abs(r.top - ir.top) < 10;
+      const mid = r.top + r.height / 2;
+      if (!sameRow && (down ? ev.clientY < Math.min(mid, r.bottom - ir.height) : ev.clientY > Math.max(mid, r.top + ir.height))) return;
+      box.insertBefore(item, down ? over.nextSibling : over);
+    };
+    // 監聽 window：元素在 DOM 中移動時會失去 pointer capture
+    const up = () => {
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', up);
+      window.removeEventListener('pointercancel', up);
+      item.classList.remove('dragging');
+      const to = list().indexOf(item);
+      if (to === from) return;
+      const a = cheatCfg().items, [x] = a.splice(from, 1);
+      a.splice(to, 0, x);
+      persist();
+      const y = window.scrollY;
+      render();
+      window.scrollTo(0, y);
+    };
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', up);
+    window.addEventListener('pointercancel', up);
+  }
+  document.addEventListener('pointerdown', e => {
+    const h = e.target.closest('[data-drag]');
+    if (h && (e.button === 0 || e.pointerType !== 'mouse')) startDrag(e, h);
+  });
+
   function cheatCard(it, c) {
     if (it.type === 'note') {
       const split = t => String(t || '').split('\n').map(x => x.trim()).filter(Boolean);
       const lines = split(it.text), vis = split(it.textVi);
       const paired = vis.length === lines.length;
-      return `<article class="cheat-card"><header><h3>${it.title ? bv(it.title, it.titleVi) : bt('小抄')}</h3></header>
+      return `<article class="cheat-card"><header>${DRAG}<h3>${it.title ? bv(it.title, it.titleVi) : bt('小抄')}</h3></header>
         ${lines.length ? `<ul class="cc-list">${lines.map((l, k) => `<li>${bv(l, paired ? vis[k] : '')}</li>`).join('')}</ul>
         ${!paired && viOn() && vis.length ? `<ul class="cc-list vi" lang="vi">${vis.map(l => `<li>${esc(l)}</li>`).join('')}</ul>` : ''}` : `<p class="muted">${bt('（尚未填寫內容）')}</p>`}</article>`;
     }
@@ -970,10 +1020,10 @@
       body += `<div class="cc-ings">${rows}</div>`;
     }
     const steps = c.steps === 'none' ? [] : r.steps.map((s, k) => ({ ...s, n: k + 1 })).filter(s => c.steps === 'all' || s.key);
-    if (steps.length) body += `<ol class="cc-steps">${steps.map(s => `<li value="${s.n}" class="${s.key ? 'key' : ''}">${s.key && c.steps === 'all' ? '★ ' : ''}${bvML(s.text, s.textVi)}${s.minutes ? ` <span class="cc-min">⏱${fmt(s.minutes)} 分${viOn() ? ' (phút)' : ''}</span>` : ''}</li>`).join('')}</ol>`;
+    if (steps.length) body += `<ol class="cc-steps">${steps.map(s => `<li value="${s.n}" class="${s.key ? 'key' : ''}">${bvML((s.key && c.steps === 'all' ? '★ ' : '') + s.text, s.textVi)}${s.minutes ? ` <span class="cc-min">⏱${fmt(s.minutes)} 分${viOn() ? ' (phút)' : ''}</span>` : ''}</li>`).join('')}</ol>`;
     if (c.notes && r.notes.trim()) body += `<div class="cc-notes">${bvML(r.notes.trim(), r.notesVi)}</div>`;
     if (c.cost) { const k = recipeCost(r, mult, priceMap()); body += `<div class="cc-cost">${bt(`成本 ${money(k.total)}　每${r.yieldUnit} ${money(k.perUnit)}${k.missing ? '（部分未計）' : ''}`)}</div>`; }
-    return `<article class="cheat-card"><header><h3>${bv(r.name, r.nameVi)}</h3>
+    return `<article class="cheat-card"><header>${DRAG}<h3>${bv(r.name, r.nameVi)}</h3>
       <span class="cc-scale">${bt(`${mult === 1 ? '' : `× ${multText(mult)}　`}${fmt(r.yieldQty * mult)} ${r.yieldUnit}`)}</span></header>${body || `<p class="muted">${bt('（沒有勾選要顯示的內容）')}</p>`}</article>`;
   }
 

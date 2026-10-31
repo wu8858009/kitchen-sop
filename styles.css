@@ -312,6 +312,12 @@ input.big { font-size: 1.3rem; }
 .cheat-grid.fs-m { font-size: 1rem; }
 .cheat-grid.fs-l { font-size: 1.25rem; }
 
+.drag { cursor: grab; touch-action: none; user-select: none; -webkit-user-select: none; color: var(--muted); font-size: 1.3rem; line-height: 1; padding: 6px 4px; flex: none; }
+.drag:active { cursor: grabbing; }
+.cheat-card header .drag { align-self: center; margin-left: -6px; }
+.dragging { opacity: .55; outline: 2px dashed var(--accent); outline-offset: 2px; border-radius: 10px; }
+body:has(.dragging) { user-select: none; -webkit-user-select: none; }
+
 /* 單價表 */
 .price-head, .price-row { display: grid; grid-template-columns: 2fr 1fr .7fr .9fr 1.6fr 38px; gap: 6px; align-items: center; }
 .price-head { font-size: .8rem; color: var(--muted); font-weight: 600; padding-bottom: 6px; }
