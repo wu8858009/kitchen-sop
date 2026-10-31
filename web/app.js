@@ -2,7 +2,7 @@
 (() => {
   'use strict';
   const U = window.KUnits;
-  const APP_VERSION = '1.7.1';
+  const APP_VERSION = '1.7.2';
   const IS_DESKTOP = /[?&]desktop=1\b/.test(location.search);
 
   const $ = (s, el = document) => el.querySelector(s);
@@ -1079,7 +1079,7 @@
   }
 
   async function cheatPdf() {
-    if (!cheatCfg().items.length) return;
+    if (!cheatCfg().items.length) return toast('請先加入卡片');
     toast('正在產生 PDF…');
     let file;
     try { file = await buildCheatPdf(); } catch (e) { return toast('產生 PDF 失敗：' + e.message, 'err'); }
@@ -1739,7 +1739,16 @@
       const html = await (await fetch('index.html?_=' + Date.now(), { cache: 'no-store' })).text();
       const latest = (html.match(/app\.js\?v=(\d+)/) || [])[1];
       const cur = ((($('script[src^="app.js"]') || {}).src || '').match(/v=(\d+)/) || [])[1];
-      if (latest && cur && latest !== cur && !(draft && draft.dirty)) { flush(); location.reload(); }
+      if (!latest || !cur || latest === cur || (draft && draft.dirty)) return;
+      // 同一個新版只自動重新載入一次，避免拿到舊快取時不停重整
+      let tried = '';
+      try { tried = sessionStorage.getItem('ksop.updateTo') || ''; sessionStorage.setItem('ksop.updateTo', latest); } catch (e) { /* ignore */ }
+      if (tried === latest) return;
+      flush();
+      // 網址加上版本參數，避開瀏覽器對首頁的快取
+      const u = new URL(location.href);
+      u.searchParams.set('v', latest);
+      location.replace(u.toString());
     } catch (e) { /* 離線時略過 */ }
   }
 
