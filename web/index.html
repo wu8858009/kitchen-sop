@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#b45309">
+<meta name="description" content="廚房 SOP 食譜管理、份量倍數換算、單位換算、計時與成本計算">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="廚房SOP">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icons/icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<title>廚房 SOP 食譜</title>
+<link rel="stylesheet" href="styles.css?v=1">
+</head>
+<body>
+<header class="topbar">
+  <a class="brand" href="#/"><img src="icons/icon.svg" alt="">廚房 SOP</a>
+  <nav class="tabs">
+    <a href="#/" data-tab="list"><span class="ti">📖</span><span>食譜</span></a>
+    <a href="#/plan" data-tab="plan"><span class="ti">🧾</span><span>備料單</span></a>
+    <a href="#/prices" data-tab="prices"><span class="ti">💲</span><span>單價表</span></a>
+    <a href="#/settings" data-tab="settings"><span class="ti">⚙️</span><span>設定</span></a>
+  </nav>
+</header>
+<main id="app"><div class="page"><p class="muted">載入中…</p></div></main>
+<div id="timers" class="timers" aria-live="polite"></div>
+<div id="toast" role="status"></div>
+<div id="modal"></div>
+<script src="units.js?v=1"></script>
+<script src="app.js?v=1"></script>
+</body>
+</html>
