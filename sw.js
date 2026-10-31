@@ -1,7 +1,7 @@
 /* 離線快取：頁面網路優先，其他資源快取優先並於背景更新 */
-const CACHE = 'kitchen-sop-v10';
+const CACHE = 'kitchen-sop-v11';
 const ASSETS = [
-  './', 'index.html', 'styles.css?v=10', 'config.js?v=10', 'units.js?v=10', 'vi.js?v=10', 'app.js?v=10', 'manifest.webmanifest',
+  './', 'index.html', 'styles.css?v=11', 'config.js?v=11', 'units.js?v=11', 'vi.js?v=11', 'app.js?v=11', 'manifest.webmanifest',
   'icons/icon.svg', 'icons/icon-192.png', 'icons/icon-512.png', 'icons/apple-touch-icon.png',
 ];
 
@@ -17,7 +17,8 @@ self.addEventListener('fetch', e => {
   const req = e.request;
   if (req.method !== 'GET' || new URL(req.url).origin !== location.origin) return; // Google 同步請求不經過快取
   if (req.mode === 'navigate') {
-    e.respondWith(fetch(req).then(r => { const copy = r.clone(); caches.open(CACHE).then(c => c.put('index.html', copy)); return r; })
+    // no-cache：每次都向伺服器確認首頁是否有新版（GitHub Pages 預設會快取 10 分鐘）
+    e.respondWith(fetch(req.url, { cache: 'no-cache', credentials: 'same-origin' }).then(r => { const copy = r.clone(); caches.open(CACHE).then(c => c.put('index.html', copy)); return r; })
       .catch(() => caches.match('index.html')));
     return;
   }
