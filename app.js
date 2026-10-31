@@ -2,7 +2,7 @@
 (() => {
   'use strict';
   const U = window.KUnits;
-  const APP_VERSION = '1.5.0';
+  const APP_VERSION = '1.5.1';
   const IS_DESKTOP = /[?&]desktop=1\b/.test(location.search);
 
   const $ = (s, el = document) => el.querySelector(s);
@@ -12,10 +12,12 @@
   const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
   const clone = o => JSON.parse(JSON.stringify(o));
   const normName = s => String(s || '').trim().toLowerCase().replace(/\s+/g, '');
-  const viOn = () => !!(window.KVi && window.KVi.on);
-  // 使用者內容（食譜名稱、食材、步驟…）：有越南文就排在中文下方
-  const bv = (zh, vi) => (viOn() && vi && String(vi).trim() ? `<span class="bi" data-novi>${esc(zh)}<span class="vi" lang="vi">${esc(vi)}</span></span>` : esc(zh));
-  const bvML = (zh, vi) => (viOn() && vi && String(vi).trim() ? `<span class="bi" data-novi>${escML(zh)}<span class="vi" lang="vi">${escML(vi)}</span></span>` : escML(zh));
+  // 越南文只用在小抄卡片：中文下方加一行越南文（食譜內容用翻譯好的欄位，固定字用字典）
+  const viOn = () => cheatCfg().vi !== false;
+  const trVi = zh => (window.KVi ? window.KVi.tr(zh) : '');
+  const bv = (zh, vi) => (viOn() && vi && String(vi).trim() ? `<span class="bi">${esc(zh)}<span class="vi" lang="vi">${esc(vi)}</span></span>` : esc(zh));
+  const bvML = (zh, vi) => (viOn() && vi && String(vi).trim() ? `<span class="bi">${escML(zh)}<span class="vi" lang="vi">${escML(vi)}</span></span>` : escML(zh));
+  const bt = zh => bv(zh, trVi(zh));
   const fmt = U.fmtNum;
   const money = n => (n == null || !isFinite(n) ? '—' : '$' + (Math.abs(n) >= 100 ? Math.round(n).toLocaleString() : n.toFixed(1)));
   const dateStr = () => { const d = new Date(); const p = n => String(n).padStart(2, '0'); return `${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}_${p(d.getHours())}${p(d.getMinutes())}`; };
@@ -357,7 +359,7 @@
 
   function onHash() {
     if (draft && draft.dirty && !isEditHash(location.hash)) {
-      if (!window.confirm(window.KVi ? window.KVi.both('食譜有尚未儲存的變更，確定要離開嗎？') : '食譜有尚未儲存的變更，確定要離開嗎？')) { history.replaceState(null, '', lastHash); return; }
+      if (!window.confirm('食譜有尚未儲存的變更，確定要離開嗎？')) { history.replaceState(null, '', lastHash); return; }
     }
     if (!isEditHash(location.hash)) draft = null;
     lastHash = location.hash;
@@ -384,7 +386,6 @@
 
   // ---------------------------------------------------------------- 食譜列表
   let listFilter = { q: '', cat: '' };
-  const catVi = c => { const r = db.recipes.find(x => x.category.trim() === c && x.categoryVi); return r ? r.categoryVi : ''; };
   function viewList() {
     const cats = categories();
     if (listFilter.cat && !cats.includes(listFilter.cat)) listFilter.cat = '';
@@ -396,7 +397,7 @@
       </div>
       <div class="chips" id="cats">
         <button class="chip ${listFilter.cat ? '' : 'on'}" data-act="cat" data-v="">全部</button>
-        ${cats.map(c => `<button class="chip ${listFilter.cat === c ? 'on' : ''}" data-act="cat" data-v="${esc(c)}">${bv(c, catVi(c))}</button>`).join('')}
+        ${cats.map(c => `<button class="chip ${listFilter.cat === c ? 'on' : ''}" data-act="cat" data-v="${esc(c)}">${esc(c)}</button>`).join('')}
       </div>
       <div class="grid" id="list"></div>
     </div>`;
@@ -417,8 +418,8 @@
       return `<a class="rcard" href="#/r/${encodeURIComponent(r.id)}">
         <div class="thumb">${r.photo ? `<img src="${r.photo}" alt="">` : '<span>🍲</span>'}</div>
         <div class="rcard-body">
-          ${r.category ? `<div class="cat">${bv(r.category, r.categoryVi)}</div>` : ''}
-          <div class="rname">${bv(r.name, r.nameVi)}</div>
+          ${r.category ? `<div class="cat">${esc(r.category)}</div>` : ''}
+          <div class="rname">${esc(r.name)}</div>
           <div class="muted small">${fmt(r.yieldQty)} ${esc(r.yieldUnit)} · ${r.ingredients.length} 食材 · ${r.steps.length} 步驟${mins ? ` · 約 ${fmt(mins)} 分` : ''}</div>
           ${c.total > 0 ? `<div class="small cost-line">每${esc(r.yieldUnit)} ${money(c.perUnit)}${c.missing ? `<span class="muted">（${c.missing} 項無單價）</span>` : ''}</div>` : ''}
         </div></a>`;
@@ -449,8 +450,8 @@
       <div class="hero">
         ${r.photo ? `<img class="hero-img" src="${r.photo}" alt="">` : ''}
         <div>
-          ${r.category ? `<div class="cat">${bv(r.category, r.categoryVi)}</div>` : ''}
-          <h1>${bv(r.name, r.nameVi)}</h1>
+          ${r.category ? `<div class="cat">${esc(r.category)}</div>` : ''}
+          <h1>${esc(r.name)}</h1>
           <div class="muted">基準份量 ${fmt(r.yieldQty)} ${esc(r.yieldUnit)} · ${r.ingredients.length} 項食材 · ${r.steps.length} 個步驟${mins ? ` · 計時合計約 ${fmt(mins)} 分鐘` : ''}</div>
         </div>
       </div>
@@ -480,12 +481,12 @@
           <li class="${s.key ? 'key' : ''} ${st.stepsDone.has(s.id) ? 'done' : ''}" data-act="stepdone" data-s="${esc(s.id)}">
             <div class="step-n">${k + 1}</div>
             <div class="step-body">
-              <div class="step-text">${bvML(s.text, s.textVi)}</div>
+              <div class="step-text">${escML(s.text)}</div>
               <div class="step-meta">${s.key ? '<span class="badge red">重點</span>' : ''}
               ${s.minutes ? `<button class="btn sm timer-btn" data-act="timer" data-s="${esc(s.id)}">⏱ 計時 ${fmtDur(s.minutes * 60)}</button>` : ''}</div>
             </div></li>`).join('')}</ol>` : '<p class="muted">尚未建立步驟。</p>'}
       </section>
-      ${r.notes.trim() ? `<section class="card"><h2>備註</h2><p>${bvML(r.notes, r.notesVi)}</p></section>` : ''}
+      ${r.notes.trim() ? `<section class="card"><h2>備註</h2><p>${escML(r.notes)}</p></section>` : ''}
     </div>`;
   }
 
@@ -503,7 +504,7 @@
     let html = '<table class="ing-table"><tbody>', lastGroup = null;
     for (const i of r.ingredients) {
       if (i.group.trim() !== (lastGroup || '') && (i.group.trim() || lastGroup)) {
-        html += `<tr class="grp"><td colspan="6">${i.group.trim() ? bv(i.group.trim(), i.groupVi) : '其他'}</td></tr>`;
+        html += `<tr class="grp"><td colspan="6">${esc(i.group.trim() || '其他')}</td></tr>`;
       }
       lastGroup = i.group.trim();
       const q = i.qty == null ? null : i.qty * mult;
@@ -512,7 +513,7 @@
       const on = st.checked.has(i.id);
       html += `<tr class="${on ? 'done' : ''}">
         <td class="ck"><input type="checkbox" data-act="check" data-i="${esc(i.id)}" ${on ? 'checked' : ''} aria-label="已備好"></td>
-        <td class="nm">${bv(i.name, i.nameVi)}${i.note ? `<div class="note">${bv(i.note, i.noteVi)}</div>` : ''}</td>
+        <td class="nm">${esc(i.name)}${i.note ? `<div class="note">${esc(i.note)}</div>` : ''}</td>
         <td class="amt"><b>${esc(d.text)}</b>${d.alt ? `<div class="alt">${esc(d.alt)}</div>` : ''}</td>
         <td class="base">${mult !== 1 && i.qty != null ? `原 ${esc(fmt(i.qty) + ' ' + i.unit)}` : ''}</td>
         <td class="cost">${costCell(c)}</td>
@@ -660,7 +661,7 @@
       if (id && !r) return notFound();
       draft = { key, isNew: !r, dirty: false, viTouched: new Set(), r: r ? toDraft(r) : { ...toDraft(normRecipe({ name: ' ' })), name: '', ingredients: [blankIng(), blankIng(), blankIng()], steps: [blankStep(), blankStep()] } };
     }
-    const r = draft.r, V = viOn();
+    const r = draft.r, V = true;
     const viIn = (path, val, ph = '越南文') => (V ? `<input class="vi-in" data-bind="${path}" value="${esc(val || '')}" placeholder="${ph}" lang="vi" autocomplete="off">` : '');
     const names = [...new Set([...db.prices.map(p => p.name), ...db.recipes.flatMap(x => x.ingredients.map(i => i.name))].map(s => s.trim()).filter(Boolean))];
     const btns = (list, k, n) => `<div class="row-btns">
@@ -722,7 +723,7 @@
         <h2>備註</h2>
         <textarea data-bind="notes" rows="3" placeholder="保存方式、出餐注意事項…">${esc(r.notes)}</textarea>
         ${V ? `<textarea class="vi-in" data-bind="notesVi" rows="3" placeholder="備註（越南文）" lang="vi">${esc(r.notesVi || '')}</textarea>
-        <p class="hint">越南文欄位留空會在儲存時自動翻譯（需連線 Google 雲端），也可以自己修改。</p>` : ''}
+        <p class="hint">虛線框是越南文（只顯示在小抄卡片上）。留空會在儲存時用 Google 翻譯自動填入（需連線 Google 雲端），也可以自己修改。</p>` : ''}
       </section>
       ${draft.isNew ? '' : '<div class="danger-zone"><button class="btn danger" data-act="delete-recipe">刪除此食譜</button></div>'}
 
@@ -842,7 +843,7 @@
       <section class="card">
         <h2>菜色與倍數</h2>
         <div class="plan-items">${db.plan.map((p, k) => { const r = getRecipe(p.recipeId); return `<div class="plan-item">
-          <a class="pname" href="#/r/${encodeURIComponent(r.id)}">${bv(r.name, r.nameVi)}</a>
+          <a class="pname" href="#/r/${encodeURIComponent(r.id)}">${esc(r.name)}</a>
           <label class="inline">×<input type="text" autocomplete="off" placeholder="2 或 /3" data-plan="${k}" value="${multText(p.mult)}"></label>
           <span class="muted small" id="py${k}">${fmt(r.yieldQty * p.mult)} ${esc(r.yieldUnit)}</span>
           <button class="icon danger no-print" data-act="plan-rm" data-k="${k}" title="移除">✕</button></div>`; }).join('') || '<p class="muted">尚未加入菜色。</p>'}</div>
@@ -868,8 +869,7 @@
         const k = normName(i.name);
         if (!k) continue;
         let e = map.get(k);
-        if (!e) map.set(k, (e = { name: i.name.trim(), vi: '', parts: [], from: new Set(), loose: false }));
-        if (!e.vi && i.nameVi) e.vi = i.nameVi;
+        if (!e) map.set(k, (e = { name: i.name.trim(), parts: [], from: new Set(), loose: false }));
         e.from.add(r.name);
         if (i.qty == null) e.loose = true;
         else e.parts.push({ qty: i.qty * p.mult, unit: i.unit });
@@ -882,7 +882,7 @@
       total += cost; if (miss) missing++;
       const amts = U.sum(e.parts).map(s => { const d = U.display(s.qty, s.unit, mode); return `<b>${esc(d.text)}</b>${d.alt ? ` <span class="alt">(${esc(d.alt)})</span>` : ''}`; });
       if (e.loose) amts.push('<span class="muted">＋適量</span>');
-      return `<tr><td class="ck"><input type="checkbox" aria-label="已備好" data-act="plan-check"></td><td class="nm">${bv(e.name, e.vi)}<div class="note">${esc([...e.from].join('、'))}</div></td>
+      return `<tr><td class="ck"><input type="checkbox" aria-label="已備好" data-act="plan-check"></td><td class="nm">${esc(e.name)}<div class="note">${esc([...e.from].join('、'))}</div></td>
         <td class="amt">${amts.join('<br>')}</td><td class="cost">${e.parts.length ? (miss ? (cost ? money(cost) + ' <span class="warn">*</span>' : '<span class="muted">無單價</span>') : money(cost)) : ''}</td></tr>`;
     });
     el.innerHTML = `<table class="ing-table plan-table"><tbody>${rows.join('')}</tbody></table>
@@ -892,7 +892,7 @@
 
   // ---------------------------------------------------------------- 小抄
   // 存在 settings.cheat，跟著設定一起同步到雲端
-  const CHEAT_DEF = { items: [], ing: true, steps: 'key', notes: true, cost: false, layout: 'two', size: 'm' };
+  const CHEAT_DEF = { items: [], ing: true, steps: 'key', notes: true, cost: false, vi: true, layout: 'two', size: 'm' };
   function cheatCfg() {
     const c = Object.assign({}, CHEAT_DEF, db.settings.cheat || {});
     c.items = (Array.isArray(c.items) ? c.items : []).filter(x => x && (x.type === 'note' || getRecipe(x.recipeId)));
@@ -915,7 +915,7 @@
         <div class="ci-row"><input type="text" placeholder="卡片標題（例如：出餐順序、注意事項）" data-cheat-note="${k}" data-f="title" value="${esc(it.title || '')}">${tools}</div>
         <textarea rows="3" placeholder="內容，一行一點" data-cheat-note="${k}" data-f="text">${esc(it.text || '')}</textarea></div>`;
       const r = getRecipe(it.recipeId);
-      return `<div class="cheat-item"><div class="ci-row"><span class="pname">${bv(r.name, r.nameVi)}</span>
+      return `<div class="cheat-item"><div class="ci-row"><span class="pname">${esc(r.name)}</span>
         <label class="inline">×<input type="text" autocomplete="off" placeholder="2 或 /3" data-cheat-mult="${k}" value="${multText(it.mult)}"></label>
         <span class="muted small" id="cy${k}">${fmt(r.yieldQty * it.mult)} ${esc(r.yieldUnit)}</span>${tools}</div></div>`;
     }).join('');
@@ -936,7 +936,7 @@
       <section class="card no-print">
         <h2>內容與版面</h2>
         <div class="cheat-opts">
-          ${box('ing', '食材用量')}${box('notes', '食譜備註')}${box('cost', '成本')}
+          ${box('ing', '食材用量')}${box('notes', '食譜備註')}${box('cost', '成本')}${box('vi', '越南文（Tiếng Việt）')}
           <label class="fld inline-fld">步驟<select data-cheat-opt="steps">${opt('steps', 'key', '只列重點步驟')}${opt('steps', 'all', '全部步驟')}${opt('steps', 'none', '不列步驟')}</select></label>
           <label class="fld inline-fld">版面<select data-cheat-opt="layout">${opt('layout', 'two', '兩欄小卡')}${opt('layout', 'one', '單欄')}${opt('layout', 'page', '一頁一張')}</select></label>
           <label class="fld inline-fld">字級<select data-cheat-opt="size">${opt('size', 's', '小')}${opt('size', 'm', '中')}${opt('size', 'l', '大')}</select></label>
@@ -952,9 +952,9 @@
       const split = t => String(t || '').split('\n').map(x => x.trim()).filter(Boolean);
       const lines = split(it.text), vis = split(it.textVi);
       const paired = vis.length === lines.length;
-      return `<article class="cheat-card"><header><h3>${it.title ? bv(it.title, it.titleVi) : '小抄'}</h3></header>
+      return `<article class="cheat-card"><header><h3>${it.title ? bv(it.title, it.titleVi) : bt('小抄')}</h3></header>
         ${lines.length ? `<ul class="cc-list">${lines.map((l, k) => `<li>${bv(l, paired ? vis[k] : '')}</li>`).join('')}</ul>
-        ${!paired && viOn() && vis.length ? `<ul class="cc-list vi" lang="vi">${vis.map(l => `<li>${esc(l)}</li>`).join('')}</ul>` : ''}` : '<p class="muted">（尚未填寫內容）</p>'}</article>`;
+        ${!paired && viOn() && vis.length ? `<ul class="cc-list vi" lang="vi">${vis.map(l => `<li>${esc(l)}</li>`).join('')}</ul>` : ''}` : `<p class="muted">${bt('（尚未填寫內容）')}</p>`}</article>`;
     }
     const r = getRecipe(it.recipeId), mult = it.mult, mode = db.settings.unitMode;
     let body = '';
@@ -962,19 +962,19 @@
       let last = null, rows = '';
       for (const i of r.ingredients) {
         const g = i.group.trim();
-        if (g !== (last || '') && (g || last)) rows += `<div class="cc-grp">${g ? bv(g, i.groupVi) : '其他'}</div>`;
+        if (g !== (last || '') && (g || last)) rows += `<div class="cc-grp">${g ? bv(g, i.groupVi) : bt('其他')}</div>`;
         last = g;
         const d = U.display(i.qty == null ? null : i.qty * mult, i.unit, mode);
-        rows += `<div class="cc-ing"><span>${bv(i.name, i.nameVi)}</span><b>${esc(d.text)}</b></div>`;
+        rows += `<div class="cc-ing"><span>${bv(i.name, i.nameVi || trVi(i.name))}</span><b>${bt(d.text)}</b></div>`;
       }
       body += `<div class="cc-ings">${rows}</div>`;
     }
     const steps = c.steps === 'none' ? [] : r.steps.map((s, k) => ({ ...s, n: k + 1 })).filter(s => c.steps === 'all' || s.key);
-    if (steps.length) body += `<ol class="cc-steps">${steps.map(s => `<li value="${s.n}" class="${s.key ? 'key' : ''}">${s.key && c.steps === 'all' ? '★ ' : ''}${bvML(s.text, s.textVi)}${s.minutes ? ` <span class="cc-min">⏱${fmt(s.minutes)}分</span>` : ''}</li>`).join('')}</ol>`;
+    if (steps.length) body += `<ol class="cc-steps">${steps.map(s => `<li value="${s.n}" class="${s.key ? 'key' : ''}">${s.key && c.steps === 'all' ? '★ ' : ''}${bvML(s.text, s.textVi)}${s.minutes ? ` <span class="cc-min">⏱${fmt(s.minutes)} 分${viOn() ? ' (phút)' : ''}</span>` : ''}</li>`).join('')}</ol>`;
     if (c.notes && r.notes.trim()) body += `<div class="cc-notes">${bvML(r.notes.trim(), r.notesVi)}</div>`;
-    if (c.cost) { const k = recipeCost(r, mult, priceMap()); body += `<div class="cc-cost">成本 ${money(k.total)}　每${esc(r.yieldUnit)} ${money(k.perUnit)}${k.missing ? '（部分未計）' : ''}</div>`; }
+    if (c.cost) { const k = recipeCost(r, mult, priceMap()); body += `<div class="cc-cost">${bt(`成本 ${money(k.total)}　每${r.yieldUnit} ${money(k.perUnit)}${k.missing ? '（部分未計）' : ''}`)}</div>`; }
     return `<article class="cheat-card"><header><h3>${bv(r.name, r.nameVi)}</h3>
-      <span class="cc-scale">${mult === 1 ? '' : `× ${multText(mult)}　`}${fmt(r.yieldQty * mult)} ${esc(r.yieldUnit)}</span></header>${body || '<p class="muted">（沒有勾選要顯示的內容）</p>'}</article>`;
+      <span class="cc-scale">${bt(`${mult === 1 ? '' : `× ${multText(mult)}　`}${fmt(r.yieldQty * mult)} ${r.yieldUnit}`)}</span></header>${body || `<p class="muted">${bt('（沒有勾選要顯示的內容）')}</p>`}</article>`;
   }
 
   function updateCheat() {
@@ -1047,14 +1047,6 @@
             <label class="fld wide">存取密碼<input id="cloudKey" type="password" autocomplete="off" placeholder="至少 6 個字；第一次連線時輸入的密碼會成為雲端的存取密碼"></label>
           </div>
           <div class="btn-row"><button class="btn primary" data-act="cloud-connect">連線</button></div>`}
-      </section>
-      <section class="card">
-        <h2>介面與食譜越南文</h2>
-        <p class="muted">在每段中文下方顯示越南文（只影響這台裝置）。食譜內容會用 Google 翻譯自動產生越南文，可在編輯食譜時修改。</p>
-        <div class="btn-row">
-          <label class="ck-lbl"><input type="checkbox" data-act="vi-toggle" ${viOn() ? 'checked' : ''}> 顯示越南文</label>
-          ${viOn() ? '<button class="btn" data-act="tr-all">🌐 翻譯全部食譜</button>' : ''}
-        </div>
       </section>
       <section class="card">
         <h2>備份與還原</h2>
@@ -1483,8 +1475,6 @@
       }
       case 'plan-rm': db.plan.splice(+el.dataset.k, 1); persist(); render(); break;
       case 'tr-draft': translateDraft(); break;
-      case 'tr-all': autoTranslate(true); break;
-      case 'vi-toggle': window.KVi.setOn(!viOn()); break;
       // 小抄
       case 'cheat-from-recipe': cheatAddRecipe(el.dataset.id, vs(el.dataset.id).mult); persist(); location.hash = '#/cheat'; break;
       case 'cheat-from-plan': db.plan.forEach(p => cheatAddRecipe(p.recipeId, p.mult)); persist(); if (route.name === 'cheat') render(); else location.hash = '#/cheat'; break;
@@ -1617,7 +1607,6 @@
 
   // ---------------------------------------------------------------- 啟動
   async function init() {
-    if (window.KVi) { window.KVi.start(); const b = $('#viBtn'); if (b) b.classList.toggle('on', viOn()); }
     let d = null;
     try { d = await Store.load(); }
     catch (e) { loadFailed = true; console.error(e); toast('讀取資料失敗：' + e.message, 'err'); }
