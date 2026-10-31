@@ -18,7 +18,14 @@
 - 計時器：多個同時進行，時間到會響鈴、震動；手機可開「螢幕恆亮」
 
 ## PWA 部署
-把 `web/` 整個資料夾放到任何 HTTPS 靜態網站（GitHub Pages、Netlify…）。手機開啟後「加入主畫面」即可離線使用。
+線上版：https://wu8858009.github.io/kitchen-sop/ （手機開啟後「加入主畫面」即可離線使用）
+
+GitHub Pages 讀的是 `gh-pages` 分支（內容 = `web/` 資料夾）。修改後在 `main` commit，再執行：
+
+```
+git subtree split --prefix web -b gh-pages && git push origin gh-pages
+```
+
 本機測試：`cd web && python -m http.server 8765` 後開 http://127.0.0.1:8765 。
 修改 JS/CSS 後請同步調整 `index.html` 的 `?v=` 與 `sw.js` 的 `CACHE` 版本。
 
