@@ -884,7 +884,7 @@
             設定方式請看 <a href="https://github.com/wu8858009/kitchen-sop/blob/main/cloud/%E8%A8%AD%E5%AE%9A%E8%AA%AA%E6%98%8E.md" target="_blank" rel="noopener">雲端設定說明</a>。</p>
           <div class="form-grid cloud-form">
             <label class="fld wide">Apps Script 網頁應用程式網址<input id="cloudUrl" value="${esc(window.KSOP_CLOUD_URL || '')}" placeholder="https://script.google.com/macros/s/…/exec" autocomplete="off"></label>
-            <label class="fld wide">存取密碼<input id="cloudKey" type="password" autocomplete="off"></label>
+            <label class="fld wide">存取密碼<input id="cloudKey" type="password" autocomplete="off" placeholder="至少 6 個字；第一次連線時輸入的密碼會成為雲端的存取密碼"></label>
           </div>
           <div class="btn-row"><button class="btn primary" data-act="cloud-connect">連線</button></div>`}
       </section>
@@ -1147,7 +1147,8 @@
       saveLocal(true);
       await cloudSync();
       render();
-      toast(cloudState.s === 'ok' ? '已連線 Google 雲端' : '已設定，但同步失敗：' + cloudState.msg, cloudState.s === 'ok' ? '' : 'err');
+      toast(cloudState.s !== 'ok' ? '已設定，但同步失敗：' + cloudState.msg
+        : info.claimed ? '已連線，並設定了雲端存取密碼；其他裝置請輸入同一組密碼' : '已連線 Google 雲端', cloudState.s === 'ok' ? '' : 'err');
     } catch (e) {
       toast('連線失敗：' + e.message, 'err');
     } finally {

@@ -10,7 +10,9 @@
  * 部署：執行身分＝我、誰可以存取＝所有人。
  */
 
-// ↓↓↓ 請改成你自己的存取密碼（至少 6 個字），網頁版／桌面版連線時輸入同一組 ↓↓↓
+// 存取密碼：留空時，第一次從 App 按「連線」所輸入的密碼（至少 6 個字）會被記住成為存取密碼，
+// 存在「專案設定 → 指令碼屬性 → ACCESS_KEY」；要換密碼就刪掉該屬性再重新連線。
+// 也可以直接在下面填寫（填了就以這裡為準）。
 const ACCESS_KEY = "";
 
 const APP = "kitchen-sop";
@@ -35,13 +37,12 @@ function doPost(e) {
   let req = {};
   try { req = JSON.parse((e && e.postData && e.postData.contents) || "{}"); } catch (x) {}
   try {
-    if (!ACCESS_KEY || String(ACCESS_KEY).length < 6) {
-      return out_({ ok: false, error: "尚未設定存取密碼：請在 Apps Script 的 Code.gs 修改 ACCESS_KEY（至少 6 個字），儲存後重新部署新版本" });
-    }
-    if (String(req.key || "") !== String(ACCESS_KEY)) return out_({ ok: false, auth: true, error: "存取密碼錯誤" });
+    let claimed = false;
+    if (!accessKey_()) claimed = claimKey_(req);
+    if (String(req.key || "") !== accessKey_()) return out_({ ok: false, auth: true, error: "存取密碼錯誤" });
     const ss = SpreadsheetApp.getActive();
     switch (req.a) {
-      case "ping": return out_({ ok: true, app: APP, rev: rev_(ss), recipes: Math.max(0, sheet_(ss, "recipes").getLastRow() - 1) });
+      case "ping": return out_({ ok: true, app: APP, rev: rev_(ss), recipes: Math.max(0, sheet_(ss, "recipes").getLastRow() - 1), claimed: claimed });
       case "rev": return out_({ ok: true, rev: rev_(ss) });
       case "load": return out_(load_(ss));
       case "save": return out_(save_(ss, req));
@@ -50,6 +51,34 @@ function doPost(e) {
   } catch (err) {
     return out_({ ok: false, error: "雲端發生錯誤：" + (err && err.message ? err.message : err) });
   }
+}
+
+function accessKey_() {
+  return String(ACCESS_KEY || PropertiesService.getScriptProperties().getProperty("ACCESS_KEY") || "");
+}
+
+/** 還沒有存取密碼時，第一次連線（ping）的密碼成為存取密碼 */
+function claimKey_(req) {
+  const k = String(req.key || "");
+  if (req.a !== "ping" || k.length < 6) throw new Error("雲端尚未設定存取密碼：請在 App 輸入至少 6 個字的密碼後按「連線」");
+  const lock = LockService.getScriptLock();
+  lock.waitLock(10000);
+  try {
+    if (accessKey_()) return false; // 同時有人先設定了
+    PropertiesService.getScriptProperties().setProperty("ACCESS_KEY", k);
+    return true;
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+/** 在 Apps Script 編輯器執行一次以完成授權，並建立各工作表 */
+function setup() {
+  const ss = SpreadsheetApp.getActive();
+  Object.keys(SHEETS).forEach((k) => sheet_(ss, k));
+  const first = ss.getSheets()[0];
+  if (ss.getSheets().length > Object.keys(SHEETS).length && first.getLastRow() === 0) ss.deleteSheet(first);
+  Logger.log("完成：工作表已建立，可以部署網頁應用程式了。");
 }
 
 function out_(o) {
