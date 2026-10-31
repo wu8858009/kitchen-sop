@@ -123,11 +123,23 @@ def _selftest(out_path):
         result["names"] = _window.evaluate_js("window.__kitchen.db.recipes.map(r => r.name)")
         result["sync"] = _window.evaluate_js("JSON.stringify(window.__kitchen.db.sync)")
         result["file_exists"] = DATA_FILE.exists()
+        result["window"] = [_window.x, _window.y, _window.width, _window.height]
         result["ok"] = bool(result["names"]) and result["file_exists"]
     except Exception as e:  # noqa: BLE001
         result["error"] = repr(e)
     Path(out_path).write_text(json.dumps(result, ensure_ascii=False, indent=1), encoding="utf-8")
     _window.destroy()
+
+
+def _fit_screen(margin=24):
+    """依螢幕工作區（扣掉工作列）決定視窗大小，並置中；單位為邏輯像素"""
+    try:
+        s = webview.screens[0]
+        wa = s.frame  # WorkingArea，與 s.width 同單位
+        w, h = max(420, wa.Width - margin * 2), max(560, wa.Height - margin * 2)
+        return dict(width=w, height=h, x=wa.X + (wa.Width - w) // 2, y=wa.Y + (wa.Height - h) // 2)
+    except Exception:  # noqa: BLE001
+        return dict(width=1200, height=760)
 
 
 def main():
@@ -137,7 +149,7 @@ def main():
     DATA_DIR.mkdir(parents=True, exist_ok=True)
     url = _serve_web()
     _window = webview.create_window(
-        APP_TITLE, url, js_api=Api(), width=1200, height=820, min_size=(420, 560), text_select=True,
+        APP_TITLE, url, js_api=Api(), min_size=(420, 560), text_select=True, **_fit_screen(),
     )
     selftest = os.environ.get("KITCHENSOP_SELFTEST")
     kwargs = dict(private_mode=False, storage_path=str(DATA_DIR / "webview"), gui="edgechromium")
