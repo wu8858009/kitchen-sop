@@ -280,6 +280,38 @@ input.big { font-size: 1.3rem; }
 .plan-add { display: flex; gap: 8px; }
 .plan-add select { flex: 1; }
 
+/* 小抄 */
+.cheat-items { display: flex; flex-direction: column; gap: 6px; margin-bottom: 12px; }
+.cheat-item { padding: 6px 0; border-bottom: 1px solid var(--line); display: flex; flex-direction: column; gap: 6px; }
+.ci-row { display: flex; align-items: center; gap: 6px; }
+.ci-row .pname { flex: 1; min-width: 0; font-weight: 700; }
+.ci-row > input[type=text] { flex: 1; min-width: 0; }
+.ci-row label input { width: 76px; font-weight: 700; }
+.ci-row .small { white-space: nowrap; }
+.cheat-item textarea { width: 100%; }
+.cheat-opts { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 18px; }
+.ck-lbl { display: inline-flex; align-items: center; gap: 6px; font-weight: 600; cursor: pointer; }
+.cheat-grid { display: grid; gap: 12px; margin-top: 4px; }
+.cheat-grid.lay-two { grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); }
+.cheat-card { background: var(--card); border: 1.5px dashed var(--line); border-radius: 10px; padding: 12px 14px; break-inside: avoid; line-height: 1.4; }
+.cheat-card header { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; border-bottom: 2px solid var(--fg); padding-bottom: 4px; margin-bottom: 6px; }
+.cheat-card h3 { margin: 0; font-size: 1.15em; }
+.cc-scale { font-weight: 700; color: var(--accent); }
+.cc-ings { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); column-gap: 14px; }
+.cc-ing { display: flex; justify-content: space-between; gap: 8px; border-bottom: 1px dotted var(--line); padding: 1px 0; }
+.cc-ing b { white-space: nowrap; }
+.cc-grp { grid-column: 1 / -1; font-size: .85em; font-weight: 700; color: var(--muted); margin-top: 4px; }
+.cc-steps { margin: 8px 0 0; padding-left: 1.6em; }
+.cc-steps li { margin: 2px 0; }
+.cc-steps li.key { font-weight: 700; }
+.cc-min { white-space: nowrap; color: var(--muted); font-weight: 400; }
+.cc-notes { margin-top: 6px; padding: 4px 8px; border-left: 3px solid var(--accent); font-size: .92em; }
+.cc-cost { margin-top: 6px; font-size: .9em; color: var(--muted); }
+.cc-list { margin: 0; padding-left: 1.3em; }
+.cheat-grid.fs-s { font-size: .85rem; }
+.cheat-grid.fs-m { font-size: 1rem; }
+.cheat-grid.fs-l { font-size: 1.25rem; }
+
 /* 單價表 */
 .price-head, .price-row { display: grid; grid-template-columns: 2fr 1fr .7fr .9fr 1.6fr 38px; gap: 6px; align-items: center; }
 .price-head { font-size: .8rem; color: var(--muted); font-weight: 600; padding-bottom: 6px; }
@@ -335,4 +367,12 @@ body.has-timers #toast { bottom: auto; top: calc(70px + env(safe-area-inset-top)
   .ing-table tr.done td:not(.ck) { opacity: 1; text-decoration: none; }
   .steps li.done .step-text { opacity: 1; text-decoration: none; }
   input { border: none; padding: 0; min-height: 0; }
+  .cheat-grid { gap: 8pt; }
+  .cheat-grid.lay-two { grid-template-columns: 1fr 1fr; }
+  .cheat-grid.lay-page .cheat-card { break-after: page; }
+  .cheat-card { border: 1pt dashed #000; border-radius: 0; padding: 8pt 10pt; }
+  .cheat-card header { border-bottom-color: #000; }
+  .cheat-grid.fs-s { font-size: 9pt; }
+  .cheat-grid.fs-m { font-size: 11pt; }
+  .cheat-grid.fs-l { font-size: 14pt; }
 }

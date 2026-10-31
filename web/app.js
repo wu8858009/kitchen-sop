@@ -2,7 +2,7 @@
 (() => {
   'use strict';
   const U = window.KUnits;
-  const APP_VERSION = '1.3.0';
+  const APP_VERSION = '1.4.0';
   const IS_DESKTOP = /[?&]desktop=1\b/.test(location.search);
 
   const $ = (s, el = document) => el.querySelector(s);
@@ -335,6 +335,7 @@
       case 'r': app.innerHTML = viewRecipe(route.id); updateRecipeComputed(); break;
       case 'edit': case 'new': app.innerHTML = viewEdit(route.name === 'new' ? null : route.id); break;
       case 'plan': app.innerHTML = viewPlan(); updatePlanTotal(); break;
+      case 'cheat': app.innerHTML = viewCheat(); updateCheat(); break;
       case 'prices': app.innerHTML = viewPrices(); break;
       case 'settings': app.innerHTML = viewSettings(); fillSettingsInfo(); setSync(cloudState.s, cloudState.msg); break;
       default: app.innerHTML = viewList(); updateList();
@@ -402,6 +403,7 @@
         ${!IS_DESKTOP && 'wakeLock' in navigator ? `<button class="btn ${wakeLock ? 'on' : ''}" data-act="wake" title="烹調時保持螢幕不關閉">💡 恆亮</button>` : ''}
         <button class="btn" data-act="print">🖨 列印</button>
         <button class="btn" data-act="addplan" data-id="${esc(r.id)}">＋ 備料單</button>
+        <button class="btn" data-act="cheat-from-recipe" data-id="${esc(r.id)}">📝 小抄</button>
         <button class="btn" data-act="dup" data-id="${esc(r.id)}">複製</button>
         <a class="btn primary" href="#/edit/${encodeURIComponent(r.id)}">編輯</a>
       </div>
@@ -789,7 +791,7 @@
     const avail = [...db.recipes].sort((a, b) => a.name.localeCompare(b.name, 'zh-Hant'));
     return `<div class="page">
       <div class="page-head"><h1 class="head-title">備料單</h1><div class="spacer"></div>
-        ${db.plan.length ? '<button class="btn" data-act="print">🖨 列印</button><button class="btn ghost no-print" data-act="plan-clear">清空</button>' : ''}</div>
+        ${db.plan.length ? '<button class="btn" data-act="cheat-from-plan">📝 做成小抄</button><button class="btn" data-act="print">🖨 列印</button><button class="btn ghost no-print" data-act="plan-clear">清空</button>' : ''}</div>
       <p class="muted no-print">把今天要做的菜加進來並設定倍數，系統會自動合併相同食材的總用量與成本，方便叫貨與備料。</p>
       <section class="card">
         <h2>菜色與倍數</h2>
@@ -839,6 +841,98 @@
     el.innerHTML = `<table class="ing-table plan-table"><tbody>${rows.join('')}</tbody></table>
       <div class="cost-box"><div><span class="muted">食材總成本</span><b>${money(total)}</b></div>
       ${missing ? `<div class="warn small">* 有 ${missing} 項食材缺少單價或單位不符，未完整計入。</div>` : ''}</div>`;
+  }
+
+  // ---------------------------------------------------------------- 小抄
+  // 存在 settings.cheat，跟著設定一起同步到雲端
+  const CHEAT_DEF = { items: [], ing: true, steps: 'key', notes: true, cost: false, layout: 'two', size: 'm' };
+  function cheatCfg() {
+    const c = Object.assign({}, CHEAT_DEF, db.settings.cheat || {});
+    c.items = (Array.isArray(c.items) ? c.items : []).filter(x => x && (x.type === 'note' || getRecipe(x.recipeId)));
+    return (db.settings.cheat = c);
+  }
+  function cheatAddRecipe(id, mult) {
+    const c = cheatCfg(), it = c.items.find(x => x.type !== 'note' && x.recipeId === id);
+    if (it) it.mult = mult; else c.items.push({ type: 'recipe', recipeId: id, mult });
+  }
+
+  function viewCheat() {
+    const c = cheatCfg();
+    const avail = [...db.recipes].sort((a, b) => a.name.localeCompare(b.name, 'zh-Hant'));
+    const opt = (k, v, t) => `<option value="${v}" ${c[k] === v ? 'selected' : ''}>${t}</option>`;
+    const box = (k, t) => `<label class="ck-lbl"><input type="checkbox" data-cheat-opt="${k}" ${c[k] ? 'checked' : ''}> ${t}</label>`;
+    const items = c.items.map((it, k) => {
+      const tools = `<button class="icon" data-act="cheat-mv" data-k="${k}" data-d="-1" title="上移">↑</button><button class="icon" data-act="cheat-mv" data-k="${k}" data-d="1" title="下移">↓</button>
+        <button class="icon danger" data-act="cheat-rm" data-k="${k}" title="移除">✕</button>`;
+      if (it.type === 'note') return `<div class="cheat-item note">
+        <div class="ci-row"><input type="text" placeholder="卡片標題（例如：出餐順序、注意事項）" data-cheat-note="${k}" data-f="title" value="${esc(it.title || '')}">${tools}</div>
+        <textarea rows="3" placeholder="內容，一行一點" data-cheat-note="${k}" data-f="text">${esc(it.text || '')}</textarea></div>`;
+      const r = getRecipe(it.recipeId);
+      return `<div class="cheat-item"><div class="ci-row"><span class="pname">${esc(r.name)}</span>
+        <label class="inline">×<input type="text" autocomplete="off" placeholder="2 或 /3" data-cheat-mult="${k}" value="${multText(it.mult)}"></label>
+        <span class="muted small" id="cy${k}">${fmt(r.yieldQty * it.mult)} ${esc(r.yieldUnit)}</span>${tools}</div></div>`;
+    }).join('');
+    return `<div class="page cheat-page">
+      <div class="page-head no-print"><h1 class="head-title">小抄</h1><div class="spacer"></div>
+        ${c.items.length ? '<button class="btn primary" data-act="print">🖨 列印小抄</button><button class="btn ghost" data-act="cheat-clear">清空</button>' : ''}</div>
+      <p class="muted no-print">把食譜依倍數濃縮成精簡卡片（份量、食材用量、重點步驟），列印後可剪下貼在工作台；也能加自訂文字卡。</p>
+      <section class="card no-print">
+        <h2>卡片</h2>
+        <div class="cheat-items">${items || '<p class="muted">尚未加入卡片。</p>'}</div>
+        <div class="plan-add">
+          ${avail.length ? `<select id="cheatAdd">${avail.map(r => `<option value="${esc(r.id)}">${esc(r.name)}</option>`).join('')}</select>
+          <button class="btn primary" data-act="cheat-add">＋ 食譜</button>` : ''}
+          <button class="btn" data-act="cheat-note">＋ 文字卡</button>
+          ${db.plan.length ? '<button class="btn" data-act="cheat-from-plan">從備料單匯入</button>' : ''}
+        </div>
+      </section>
+      <section class="card no-print">
+        <h2>內容與版面</h2>
+        <div class="cheat-opts">
+          ${box('ing', '食材用量')}${box('notes', '食譜備註')}${box('cost', '成本')}
+          <label class="fld inline-fld">步驟<select data-cheat-opt="steps">${opt('steps', 'key', '只列重點步驟')}${opt('steps', 'all', '全部步驟')}${opt('steps', 'none', '不列步驟')}</select></label>
+          <label class="fld inline-fld">版面<select data-cheat-opt="layout">${opt('layout', 'two', '兩欄小卡')}${opt('layout', 'one', '單欄')}${opt('layout', 'page', '一頁一張')}</select></label>
+          <label class="fld inline-fld">字級<select data-cheat-opt="size">${opt('size', 's', '小')}${opt('size', 'm', '中')}${opt('size', 'l', '大')}</select></label>
+          <label class="fld inline-fld">單位${unitModeSelect('unitMode4')}</label>
+        </div>
+      </section>
+      <div id="cheatCards"></div>
+    </div>`;
+  }
+
+  function cheatCard(it, c) {
+    if (it.type === 'note') {
+      const lines = String(it.text || '').split('\n').map(x => x.trim()).filter(Boolean);
+      return `<article class="cheat-card"><header><h3>${esc(it.title || '小抄')}</h3></header>
+        ${lines.length ? `<ul class="cc-list">${lines.map(l => `<li>${esc(l)}</li>`).join('')}</ul>` : '<p class="muted">（尚未填寫內容）</p>'}</article>`;
+    }
+    const r = getRecipe(it.recipeId), mult = it.mult, mode = db.settings.unitMode;
+    let body = '';
+    if (c.ing && r.ingredients.length) {
+      let last = null, rows = '';
+      for (const i of r.ingredients) {
+        const g = i.group.trim();
+        if (g !== (last || '') && (g || last)) rows += `<div class="cc-grp">${esc(g || '其他')}</div>`;
+        last = g;
+        const d = U.display(i.qty == null ? null : i.qty * mult, i.unit, mode);
+        rows += `<div class="cc-ing"><span>${esc(i.name)}</span><b>${esc(d.text)}</b></div>`;
+      }
+      body += `<div class="cc-ings">${rows}</div>`;
+    }
+    const steps = c.steps === 'none' ? [] : r.steps.map((s, k) => ({ ...s, n: k + 1 })).filter(s => c.steps === 'all' || s.key);
+    if (steps.length) body += `<ol class="cc-steps">${steps.map(s => `<li value="${s.n}" class="${s.key ? 'key' : ''}">${s.key && c.steps === 'all' ? '★ ' : ''}${esc(s.text)}${s.minutes ? ` <span class="cc-min">⏱${fmt(s.minutes)}分</span>` : ''}</li>`).join('')}</ol>`;
+    if (c.notes && r.notes.trim()) body += `<div class="cc-notes">${esc(r.notes.trim()).replace(/\n/g, '<br>')}</div>`;
+    if (c.cost) { const k = recipeCost(r, mult, priceMap()); body += `<div class="cc-cost">成本 ${money(k.total)}　每${esc(r.yieldUnit)} ${money(k.perUnit)}${k.missing ? '（部分未計）' : ''}</div>`; }
+    return `<article class="cheat-card"><header><h3>${esc(r.name)}</h3>
+      <span class="cc-scale">${mult === 1 ? '' : `× ${multText(mult)}　`}${fmt(r.yieldQty * mult)} ${esc(r.yieldUnit)}</span></header>${body || '<p class="muted">（沒有勾選要顯示的內容）</p>'}</article>`;
+  }
+
+  function updateCheat() {
+    const el = $('#cheatCards');
+    if (!el) return;
+    const c = cheatCfg();
+    el.className = `cheat-grid lay-${c.layout} fs-${c.size}`;
+    el.innerHTML = c.items.map(it => cheatCard(it, c)).join('');
   }
 
   // ---------------------------------------------------------------- 單價表
@@ -1258,6 +1352,22 @@
         persist(); render(); break;
       }
       case 'plan-rm': db.plan.splice(+el.dataset.k, 1); persist(); render(); break;
+      // 小抄
+      case 'cheat-from-recipe': cheatAddRecipe(el.dataset.id, vs(el.dataset.id).mult); persist(); location.hash = '#/cheat'; break;
+      case 'cheat-from-plan': db.plan.forEach(p => cheatAddRecipe(p.recipeId, p.mult)); persist(); if (route.name === 'cheat') render(); else location.hash = '#/cheat'; break;
+      case 'cheat-add': {
+        const id = $('#cheatAdd').value;
+        if (cheatCfg().items.some(x => x.recipeId === id)) { toast('這道菜已經在小抄裡了'); break; }
+        cheatAddRecipe(id, 1); persist(); render(); break;
+      }
+      case 'cheat-note': cheatCfg().items.push({ type: 'note', title: '', text: '' }); persist(); render(); { const t = $$('[data-cheat-note][data-f="title"]').pop(); if (t) t.focus(); } break;
+      case 'cheat-rm': cheatCfg().items.splice(+el.dataset.k, 1); persist(); render(); break;
+      case 'cheat-mv': {
+        const a = cheatCfg().items, k = +el.dataset.k, j = k + +el.dataset.d;
+        if (j >= 0 && j < a.length) { [a[k], a[j]] = [a[j], a[k]]; persist(); render(); }
+        break;
+      }
+      case 'cheat-clear': if (await confirmBox('清空小抄', '確定要清空所有小抄卡片嗎？（食譜不會被刪除）', '清空', true)) { cheatCfg().items = []; persist(); render(); } break;
       case 'plan-clear': if (await confirmBox('清空備料單', '確定要清空備料單嗎？（食譜不會被刪除）', '清空', true)) { db.plan = []; persist(); render(); } break;
       // 單價
       case 'price-add': priceFilter = ''; db.prices.push(normPrice({})); db.pricesUpdatedAt = Date.now(); persist(); render(); { const ins = $$('[data-price$=".name"]'); ins.length && ins[ins.length - 1].focus(); } break;
@@ -1313,6 +1423,16 @@
       t.classList.remove('invalid');
       return;
     }
+    if (t.dataset.cheatMult != null) {
+      const k = +t.dataset.cheatMult, m = parseMult(t.value), it = cheatCfg().items[k];
+      if (it && m) { it.mult = m; persist(); const r = getRecipe(it.recipeId); $('#cy' + k).textContent = `${fmt(r.yieldQty * m)} ${r.yieldUnit}`; updateCheat(); }
+      return;
+    }
+    if (t.dataset.cheatNote != null) {
+      const it = cheatCfg().items[+t.dataset.cheatNote];
+      if (it) { it[t.dataset.f] = t.value; persist(); updateCheat(); }
+      return;
+    }
     if (t.dataset.plan != null) {
       const k = +t.dataset.plan, m = parseMult(t.value), p = db.plan[k];
       if (p && m > 0) { p.mult = m; persist(); const r = getRecipe(p.recipeId); $('#py' + k).textContent = `${fmt(r.yieldQty * m)} ${r.yieldUnit}`; updatePlanTotal(); }
@@ -1331,11 +1451,15 @@
 
   document.addEventListener('change', async e => {
     const t = e.target, act = t.dataset.actChange;
+    if (t.dataset.cheatOpt) {
+      cheatCfg()[t.dataset.cheatOpt] = t.type === 'checkbox' ? t.checked : t.value;
+      persist(); updateCheat(); return;
+    }
     if (!act) return;
     if (act === 'unitmode') {
       db.settings.unitMode = t.value; persist();
       $$('[data-act-change="unitmode"]').forEach(s => { s.value = t.value; });
-      updateRecipeComputed(); updatePlanTotal();
+      updateRecipeComputed(); updatePlanTotal(); updateCheat();
     } else if (act === 'photo' && t.files[0]) {
       try { draft.r.photo = await resizeImage(t.files[0]); draft.dirty = true; rerenderEdit(); } catch (err) { toast(err.message, 'err'); }
     } else if (act === 'import' && t.files[0]) {
