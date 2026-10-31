@@ -2,7 +2,7 @@
 (() => {
   'use strict';
   const U = window.KUnits;
-  const APP_VERSION = '1.6.0';
+  const APP_VERSION = '1.7.0';
   const IS_DESKTOP = /[?&]desktop=1\b/.test(location.search);
 
   const $ = (s, el = document) => el.querySelector(s);
@@ -921,7 +921,7 @@
     }).join('');
     return `<div class="page cheat-page">
       <div class="page-head no-print"><h1 class="head-title">小抄</h1><div class="spacer"></div>
-        ${c.items.length ? '<button class="btn primary" data-act="print">🖨 列印小抄</button><button class="btn ghost" data-act="cheat-clear">清空</button>' : ''}</div>
+        ${c.items.length ? '<button class="btn primary" data-act="cheat-print">🖨 列印小抄</button><button class="btn ghost" data-act="cheat-clear">清空</button>' : ''}</div>
       <p class="muted no-print">把食譜依倍數濃縮成精簡卡片（份量、食材用量、重點步驟），列印後可剪下貼在工作台；也能加自訂文字卡。</p>
       <section class="card no-print">
         <h2>卡片</h2>
@@ -1025,6 +1025,80 @@
     if (c.cost) { const k = recipeCost(r, mult, priceMap()); body += `<div class="cc-cost">${bt(`成本 ${money(k.total)}　每${r.yieldUnit} ${money(k.perUnit)}${k.missing ? '（部分未計）' : ''}`)}</div>`; }
     return `<article class="cheat-card"><header>${DRAG}<h3>${bv(r.name, r.nameVi)}</h3>
       <span class="cc-scale">${bt(`${mult === 1 ? '' : `× ${multText(mult)}　`}${fmt(r.yieldQty * mult)} ${r.yieldUnit}`)}</span></header>${body || `<p class="muted">${bt('（沒有勾選要顯示的內容）')}</p>`}</article>`;
+  }
+
+  // ---- 手機列印：iPhone 主畫面 App 不支援 window.print()，改成產生 A4 PDF，再用分享選單列印／存檔／傳 LINE
+  const IS_MOBILE = !IS_DESKTOP && (/iPhone|iPad|iPod|Android/i.test(navigator.userAgent) || (/Macintosh/.test(navigator.userAgent) && navigator.maxTouchPoints > 1));
+  const PDF_LIBS = ['https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js', 'https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js'];
+  const loadedJs = {};
+  const loadJs = src => loadedJs[src] || (loadedJs[src] = new Promise((res, rej) => {
+    const el = document.createElement('script');
+    el.src = src; el.onload = res;
+    el.onerror = () => { delete loadedJs[src]; rej(new Error('無法載入列印元件，請確認網路')); };
+    document.head.appendChild(el);
+  }));
+
+  // 每張卡片各自截圖，依版面排進 A4 頁面，卡片不會被切成兩半
+  async function buildCheatPdf() {
+    await Promise.all(PDF_LIBS.map(loadJs));
+    const c = cheatCfg();
+    const PAGE_W = 210, PAGE_H = 297, M = 10, GAP = 4;          // mm
+    const CONTENT_PX = 718, mmPerPx = (PAGE_W - M * 2) / CONTENT_PX; // A4 內容寬約 718 CSS px
+    const two = c.layout === 'two', colPx = two ? (CONTENT_PX - GAP / mmPerPx) / 2 : CONTENT_PX;
+    const host = document.createElement('div');
+    host.className = `pdf-render cheat-grid lay-one fs-${c.size}`;
+    host.style.cssText = `position:fixed;left:-10000px;top:0;width:${colPx}px`;
+    host.innerHTML = c.items.map(it => cheatCard(it, c)).join('');
+    document.body.appendChild(host);
+    try {
+      const imgs = [];
+      for (const card of host.querySelectorAll('.cheat-card')) {
+        const cv = await window.html2canvas(card, { scale: 2, backgroundColor: '#ffffff' });
+        imgs.push({ data: cv.toDataURL('image/jpeg', 0.9), w: colPx * mmPerPx, h: cv.height / 2 * mmPerPx });
+      }
+      const pdf = new window.jspdf.jsPDF({ unit: 'mm', format: 'a4' });
+      const maxH = PAGE_H - M * 2;
+      let y = M, first = true;
+      const place = (img, x, top) => {
+        const k = Math.min(1, maxH / img.h); // 比一頁還高的卡片縮小放進一頁
+        pdf.addImage(img.data, 'JPEG', x, top, img.w * k, img.h * k);
+        return img.h * k;
+      };
+      const newPage = () => { if (!first) pdf.addPage(); first = false; y = M; };
+      newPage();
+      const per = two ? 2 : 1;
+      for (let i = 0; i < imgs.length; i += per) {
+        const row = imgs.slice(i, i + per);
+        const rowH = Math.min(maxH, Math.max(...row.map(r => r.h)));
+        if (c.layout === 'page' ? i > 0 : y + rowH > PAGE_H - M && y > M) newPage();
+        row.forEach((img, k) => place(img, M + k * (img.w + GAP), y));
+        y += rowH + GAP;
+      }
+      return new File([pdf.output('blob')], `小抄_${dateStr()}.pdf`, { type: 'application/pdf' });
+    } finally { host.remove(); }
+  }
+
+  async function cheatPdf() {
+    if (!cheatCfg().items.length) return;
+    toast('正在產生 PDF…');
+    let file;
+    try { file = await buildCheatPdf(); } catch (e) { return toast('產生 PDF 失敗：' + e.message, 'err'); }
+    const canShare = (() => { try { return !!navigator.canShare && navigator.canShare({ files: [file] }); } catch (e) { return false; } })();
+    const url = URL.createObjectURL(file);
+    // 產生 PDF 需要一點時間，iOS 會認為已不是使用者點的，所以再請使用者點一次「分享／列印」
+    const act = await modal({
+      title: 'PDF 已準備好',
+      body: `<p>${canShare ? '按「分享／列印」後，在分享選單選「列印」即可用印表機列印，也可以存到檔案或傳 LINE。' : '按「開啟 PDF」後，用瀏覽器的列印或分享功能列印。'}</p>`,
+      buttons: [{ label: '關閉', value: null }, ...(canShare ? [{ label: '開啟 PDF', value: 'open' }, { label: '分享／列印', cls: 'primary', value: 'share' }] : [{ label: '開啟 PDF', cls: 'primary', value: 'open' }])],
+    });
+    if (act === 'share') {
+      try { await navigator.share({ files: [file], title: file.name }); }
+      catch (e) { if (e.name !== 'AbortError') { window.open(url, '_blank'); } }
+    } else if (act === 'open') {
+      const w = window.open(url, '_blank');
+      if (!w) { const a = document.createElement('a'); a.href = url; a.download = file.name; document.body.appendChild(a); a.click(); a.remove(); }
+    }
+    setTimeout(() => URL.revokeObjectURL(url), 120000);
   }
 
   function updateCheat() {
@@ -1540,6 +1614,7 @@
         if (j >= 0 && j < a.length) { [a[k], a[j]] = [a[j], a[k]]; persist(); render(); }
         break;
       }
+      case 'cheat-print': if (IS_MOBILE) cheatPdf(); else { flush(); window.print(); } break;
       case 'cheat-clear': if (await confirmBox('清空小抄', '確定要清空所有小抄卡片嗎？（食譜不會被刪除）', '清空', true)) { cheatCfg().items = []; persist(); render(); } break;
       case 'plan-clear': if (await confirmBox('清空備料單', '確定要清空備料單嗎？（食譜不會被刪除）', '清空', true)) { db.plan = []; persist(); render(); } break;
       // 單價
