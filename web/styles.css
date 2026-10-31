@@ -318,6 +318,13 @@ input.big { font-size: 1.3rem; }
 .dragging { opacity: .55; outline: 2px dashed var(--accent); outline-offset: 2px; border-radius: 10px; }
 body:has(.dragging) { user-select: none; -webkit-user-select: none; }
 
+/* 手機產生 PDF 用的離屏白底版面（同列印樣式） */
+.pdf-render { --bg: #fff; --card: #fff; --fg: #000; --muted: #555; --line: #bbb; --accent: #000; --accent-soft: #fff; color: #000; background: #fff; gap: 0; }
+.pdf-render .no-print { display: none !important; }
+.pdf-render .cheat-card { border: 1px dashed #000; border-radius: 0; padding: 10px 13px; }
+.pdf-render .cheat-card header { border-bottom-color: #000; }
+.pdf-render.fs-s { font-size: 12px; } .pdf-render.fs-m { font-size: 14.5px; } .pdf-render.fs-l { font-size: 18.5px; }
+
 /* 單價表 */
 .price-head, .price-row { display: grid; grid-template-columns: 2fr 1fr .7fr .9fr 1.6fr 38px; gap: 6px; align-items: center; }
 .price-head { font-size: .8rem; color: var(--muted); font-weight: 600; padding-bottom: 6px; }
