@@ -2,7 +2,7 @@
 (() => {
   'use strict';
   const U = window.KUnits;
-  const APP_VERSION = '1.7.0';
+  const APP_VERSION = '1.7.1';
   const IS_DESKTOP = /[?&]desktop=1\b/.test(location.search);
 
   const $ = (s, el = document) => el.querySelector(s);
@@ -1726,9 +1726,22 @@
   window.addEventListener('beforeunload', e => { flush(); if (draft && draft.dirty) { e.preventDefault(); e.returnValue = ''; } });
   document.addEventListener('visibilitychange', async () => {
     if (!document.hidden && wakeLock === null && $('[data-act="wake"].on')) { try { wakeLock = await navigator.wakeLock.request('screen'); } catch (e) { /* ignore */ } }
-    if (!document.hidden) { tick(); if (db && db.cloud) cloudSync(); }
+    if (!document.hidden) { tick(); if (db && db.cloud) cloudSync(); checkUpdate(); }
     else flush();
   });
+
+  // 主畫面 App 從背景切回來時不會重新載入：發現網站已發佈新版就自動重新整理（編輯中不打斷）
+  let lastUpdateCheck = 0;
+  async function checkUpdate() {
+    if (IS_DESKTOP || !/^https?:$/.test(location.protocol) || Date.now() - lastUpdateCheck < 60000) return;
+    lastUpdateCheck = Date.now();
+    try {
+      const html = await (await fetch('index.html?_=' + Date.now(), { cache: 'no-store' })).text();
+      const latest = (html.match(/app\.js\?v=(\d+)/) || [])[1];
+      const cur = ((($('script[src^="app.js"]') || {}).src || '').match(/v=(\d+)/) || [])[1];
+      if (latest && cur && latest !== cur && !(draft && draft.dirty)) { flush(); location.reload(); }
+    } catch (e) { /* 離線時略過 */ }
+  }
 
   // ---------------------------------------------------------------- 啟動
   async function init() {
@@ -1747,6 +1760,7 @@
     window.addEventListener('online', () => { if (db.cloud) cloudSync(); });
     document.body.classList.add('ready');
     if (!IS_DESKTOP && 'serviceWorker' in navigator && /^https?:$/.test(location.protocol)) navigator.serviceWorker.register('sw.js').catch(() => {});
+    setTimeout(checkUpdate, 3000);
     if (!IS_DESKTOP && navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {});
   }
 
