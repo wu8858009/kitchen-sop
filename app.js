@@ -2,7 +2,7 @@
 (() => {
   'use strict';
   const U = window.KUnits;
-  const APP_VERSION = '1.0.0';
+  const APP_VERSION = '1.1.0';
   const IS_DESKTOP = /[?&]desktop=1\b/.test(location.search);
 
   const $ = (s, el = document) => el.querySelector(s);
@@ -74,18 +74,29 @@
   let db = null;
   let loadFailed = false;
   let saveTimer = null;
-  function persist(now) {
+  let changeSeq = 0; // 每次本機修改 +1，用來判斷同步期間是否又有新修改
+  /** 寫入本機（IndexedDB / 桌面版資料檔），不影響雲端狀態 */
+  function saveLocal(now) {
     if (loadFailed) return;
     clearTimeout(saveTimer);
     const run = () => { saveTimer = null; Store.save(db).catch(e => toast('儲存失敗：' + e.message, 'err')); };
     if (now) run(); else saveTimer = setTimeout(run, 250);
   }
-  const flush = () => { if (saveTimer) persist(true); };
+  /** 使用者修改了資料：存本機，並排程上傳到 Google */
+  function persist(now) {
+    if (loadFailed) return;
+    db.pristine = false;
+    if (db.cloud) { db.sync.dirty = true; changeSeq++; scheduleCloudSync(); }
+    saveLocal(now);
+  }
+  const flush = () => { if (saveTimer) saveLocal(true); };
   document.addEventListener('visibilitychange', () => { if (document.hidden) flush(); });
   window.addEventListener('pagehide', flush);
 
   // ---------------------------------------------------------------- 資料模型
-  function emptyDb() { return { version: 1, recipes: [], prices: [], plan: [], settings: { unitMode: 'auto' } }; }
+  function emptyDb() {
+    return { version: 1, recipes: [], prices: [], plan: [], settings: { unitMode: 'auto' }, deleted: {}, pricesUpdatedAt: 0, cloud: null, sync: { rev: 0, dirty: false, photos: [] } };
+  }
 
   function normRecipe(r) {
     r = r || {};
@@ -122,7 +133,23 @@
       prices: Array.isArray(d.prices) ? d.prices.map(normPrice) : [],
       plan: Array.isArray(d.plan) ? d.plan.filter(x => x && x.recipeId).map(x => ({ recipeId: String(x.recipeId), mult: num(x.mult) || 1 })) : [],
       settings: Object.assign(e.settings, d.settings || {}),
+      deleted: d.deleted && typeof d.deleted === 'object' && !Array.isArray(d.deleted) ? { ...d.deleted } : {},
+      pricesUpdatedAt: +d.pricesUpdatedAt || 0,
+      pristine: !!d.pristine, // 只有自動放入、沒動過的範例資料
+      cloud: d.cloud && d.cloud.url ? { url: String(d.cloud.url), key: String(d.cloud.key || '') } : null,
+      sync: {
+        rev: +(d.sync && d.sync.rev) || 0,
+        dirty: !!(d.sync && d.sync.dirty),
+        force: !!(d.sync && d.sync.force),
+        photos: d.sync && Array.isArray(d.sync.photos) ? d.sync.photos : [],
+        at: (d.sync && d.sync.at) || 0,
+      },
     };
+  }
+  /** 匯出／上傳時不帶裝置專屬的雲端設定 */
+  function shareable(d) {
+    const { cloud, sync, pristine, ...rest } = d;
+    return rest;
   }
 
   const getRecipe = id => db.recipes.find(r => r.id === id);
@@ -293,7 +320,7 @@
       case 'edit': case 'new': app.innerHTML = viewEdit(route.name === 'new' ? null : route.id); break;
       case 'plan': app.innerHTML = viewPlan(); updatePlanTotal(); break;
       case 'prices': app.innerHTML = viewPrices(); break;
-      case 'settings': app.innerHTML = viewSettings(); fillSettingsInfo(); break;
+      case 'settings': app.innerHTML = viewSettings(); fillSettingsInfo(); setSync(cloudState.s, cloudState.msg); break;
       default: app.innerHTML = viewList(); updateList();
     }
     document.title = (route.name === 'r' && getRecipe(route.id) ? getRecipe(route.id).name + ' - ' : '') + '廚房 SOP 食譜';
@@ -693,7 +720,7 @@
     toast(`已加入 ${items.length} 項`);
   }
 
-  function resizeImage(file, max = 1024) {
+  function resizeImage(file, max = 800) {
     return new Promise((res, rej) => {
       const img = new Image();
       const url = URL.createObjectURL(file);
@@ -703,7 +730,7 @@
         c.width = Math.round(img.width * s); c.height = Math.round(img.height * s);
         c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
         URL.revokeObjectURL(url);
-        res(c.toDataURL('image/jpeg', 0.8));
+        res(c.toDataURL('image/jpeg', 0.75));
       };
       img.onerror = () => { URL.revokeObjectURL(url); rej(new Error('無法讀取圖片')); };
       img.src = url;
@@ -845,6 +872,23 @@
         </details>
       </section>
       <section class="card">
+        <h2>☁ Google 雲端同步</h2>
+        ${db.cloud ? `
+          <p>已連線到你的 Google 試算表，修改會自動同步到其他裝置。</p>
+          <p class="small muted" id="cloudInfo"></p>
+          <div class="btn-row">
+            <button class="btn primary" data-act="cloud-sync">立即同步</button>
+            <button class="btn" data-act="cloud-off">中斷連線</button>
+          </div>` : `
+          <p class="muted">把資料存到你自己的 Google 試算表，手機、平板、電腦版都讀寫同一份。
+            設定方式請看 <a href="https://github.com/wu8858009/kitchen-sop/blob/main/cloud/%E8%A8%AD%E5%AE%9A%E8%AA%AA%E6%98%8E.md" target="_blank" rel="noopener">雲端設定說明</a>。</p>
+          <div class="form-grid cloud-form">
+            <label class="fld wide">Apps Script 網頁應用程式網址<input id="cloudUrl" value="${esc(window.KSOP_CLOUD_URL || '')}" placeholder="https://script.google.com/macros/s/…/exec" autocomplete="off"></label>
+            <label class="fld wide">存取密碼<input id="cloudKey" type="password" autocomplete="off"></label>
+          </div>
+          <div class="btn-row"><button class="btn primary" data-act="cloud-connect">連線</button></div>`}
+      </section>
+      <section class="card">
         <h2>備份與還原</h2>
         <p class="muted">匯出的 JSON 檔可在手機版與電腦版之間互相匯入。</p>
         <div class="btn-row">
@@ -872,7 +916,7 @@
   }
 
   async function exportData() {
-    const text = JSON.stringify({ app: 'kitchen-sop', exportedAt: new Date().toISOString(), ...db }, null, 1);
+    const text = JSON.stringify({ app: 'kitchen-sop', exportedAt: new Date().toISOString(), ...shareable(db) }, null, 1);
     const name = `廚房SOP備份_${dateStr()}.json`;
     if (IS_DESKTOP) {
       const p = await (await desktopApi()).export_file(text, name);
@@ -901,8 +945,14 @@
       buttons: [{ label: '取消', value: null }, { label: '全部取代', cls: 'danger', value: 'replace' }, { label: '合併', cls: 'primary', value: 'merge' }],
     });
     if (!how) return;
-    if (how === 'replace') db = inc;
-    else {
+    const now = Date.now();
+    inc.recipes.forEach(r => { r.updatedAt = now; delete inc.deleted[r.id]; delete db.deleted[r.id]; });
+    if (how === 'replace') {
+      const deleted = { ...db.deleted };
+      db.recipes.forEach(r => { if (!inc.recipes.some(x => x.id === r.id)) deleted[r.id] = now; });
+      db = { ...inc, deleted, pricesUpdatedAt: now, cloud: db.cloud, sync: db.sync };
+    } else {
+      db.pricesUpdatedAt = now;
       for (const r of inc.recipes) { const k = db.recipes.findIndex(x => x.id === r.id); if (k >= 0) db.recipes[k] = r; else db.recipes.push(r); }
       for (const p of inc.prices) { const k = db.prices.findIndex(x => normName(x.name) === normName(p.name)); if (k >= 0) db.prices[k] = p; else db.prices.push(p); }
     }
@@ -916,10 +966,193 @@
     const have = new Set(db.recipes.map(r => r.name));
     const add = s.recipes.filter(r => !have.has(r.name));
     db.recipes.push(...add);
-    for (const p of s.prices) if (!db.prices.some(x => normName(x.name) === normName(p.name))) db.prices.push(p);
+    for (const p of s.prices) if (!db.prices.some(x => normName(x.name) === normName(p.name))) { db.prices.push(p); db.pricesUpdatedAt = Date.now(); }
     persist(true);
     render();
     toast(add.length ? `已加入 ${add.length} 道範例食譜` : '範例食譜已經存在');
+  }
+
+  // ---------------------------------------------------------------- Google 雲端同步
+  // 本機資料是離線快取；有設定雲端時，修改後自動上傳，並定期檢查雲端版本號。
+  // 版本衝突時以「每道食譜的更新時間」合併，刪除用墓碑（deleted）傳遞。
+  let cloudBusy = false, cloudAgain = false, cloudTimer = null, cloudState = { s: 'off', msg: '' };
+
+  function hashStr(str) {
+    let h1 = 0xdeadbeef, h2 = 0x41c6ce57;
+    for (let i = 0; i < str.length; i++) {
+      const ch = str.charCodeAt(i);
+      h1 = Math.imul(h1 ^ ch, 2654435761); h2 = Math.imul(h2 ^ ch, 1597334677);
+    }
+    h1 = Math.imul(h1 ^ (h1 >>> 16), 2246822507) ^ Math.imul(h2 ^ (h2 >>> 13), 3266489909);
+    h2 = Math.imul(h2 ^ (h2 >>> 16), 2246822507) ^ Math.imul(h1 ^ (h1 >>> 13), 3266489909);
+    return (h2 >>> 0).toString(16).padStart(8, '0') + (h1 >>> 0).toString(16).padStart(8, '0');
+  }
+
+  async function cloudCall(body, cfg) {
+    cfg = cfg || db.cloud;
+    const ctl = new AbortController();
+    const t = setTimeout(() => ctl.abort(), 60000);
+    let res;
+    try {
+      res = await fetch(cfg.url, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify({ ...body, key: cfg.key }), signal: ctl.signal });
+    } catch (e) {
+      throw new Error(navigator.onLine === false ? '目前沒有網路' : e.name === 'AbortError' ? '連線逾時' : '無法連線到 Google');
+    } finally { clearTimeout(t); }
+    let j;
+    try { j = await res.json(); } catch (e) { throw new Error('回應格式不對：請確認是「網頁應用程式」的 /exec 網址，且存取權為「所有人」'); }
+    if (!j.ok && !j.conflict && !j.needPhotos) { const err = new Error(j.error || '雲端發生錯誤'); err.auth = !!j.auth; throw err; }
+    return j;
+  }
+
+  function cloudPayload() {
+    const photos = {};
+    const recipes = db.recipes.map(r => {
+      const { photo, ...rest } = r;
+      let h = '';
+      if (photo) { h = hashStr(photo); photos[h] = photo; }
+      return { ...rest, photoHash: h };
+    });
+    return { db: { ...shareable(db), recipes }, photos };
+  }
+
+  async function pushOnce(force) {
+    const p = cloudPayload();
+    const pick = keep => Object.fromEntries(Object.entries(p.photos).filter(([h]) => keep(h)));
+    const known = new Set(db.sync.photos);
+    const base = { a: 'save', baseRev: db.sync.rev, force: !!force, db: p.db };
+    let r = await cloudCall({ ...base, photos: pick(h => !known.has(h)) });
+    if (r.needPhotos) { const need = r.needPhotos; r = await cloudCall({ ...base, photos: pick(h => need.includes(h)) }); }
+    if (r.photoHashes) db.sync.photos = r.photoHashes;
+    return r;
+  }
+
+  function mergeDb(local, remote) {
+    const deleted = { ...remote.deleted };
+    for (const [k, v] of Object.entries(local.deleted)) deleted[k] = Math.max(deleted[k] || 0, v);
+    const map = new Map(remote.recipes.map(r => [r.id, r]));
+    for (const r of local.recipes) { const o = map.get(r.id); if (!o || (r.updatedAt || 0) >= (o.updatedAt || 0)) map.set(r.id, r); }
+    const recipes = [...map.values()].filter(r => !(deleted[r.id] >= (r.updatedAt || 0)));
+    const localPrices = local.pricesUpdatedAt >= remote.pricesUpdatedAt;
+    return {
+      ...local, recipes, deleted,
+      prices: localPrices ? local.prices : remote.prices,
+      pricesUpdatedAt: Math.max(local.pricesUpdatedAt, remote.pricesUpdatedAt),
+    };
+  }
+
+  function applyRemote(L, merge) {
+    const remote = normalizeDb(L.db);
+    const sync = { ...db.sync, rev: L.rev, photos: L.photoHashes || db.sync.photos };
+    if (merge) { db = mergeDb(db, remote); db.sync = { ...sync, dirty: true }; }
+    else db = { ...remote, cloud: db.cloud, sync: { ...sync, dirty: false } };
+    saveLocal(true);
+    refreshAfterSync();
+  }
+
+  function refreshAfterSync() {
+    if (route.name === 'edit' || route.name === 'new') return; // 編輯中不打斷，儲存時會再合併
+    const a = document.activeElement;
+    if (a && $('#app').contains(a) && /INPUT|TEXTAREA|SELECT/.test(a.tagName)) return;
+    const y = window.scrollY;
+    render();
+    window.scrollTo(0, y);
+  }
+
+  function setSync(s, msg = '') {
+    cloudState = { s, msg };
+    const el = $('#syncPill');
+    if (!el) return;
+    const map = { ok: ['☁', '已同步'], busy: ['⟳', '同步中'], pending: ['☁', '待同步'], err: ['⚠', '同步失敗'] };
+    el.hidden = s === 'off';
+    if (s === 'off') return;
+    el.className = 'sync-pill ' + s;
+    el.innerHTML = `<span>${map[s][0]}</span><span class="sp-t">${map[s][1]}</span>`;
+    el.title = msg || (db.sync.at ? '上次同步：' + new Date(db.sync.at).toLocaleString() : '');
+    const info = $('#cloudInfo');
+    if (info) info.textContent = `${map[s][1]}${msg ? '：' + msg : ''}${db.sync.at ? '　上次同步 ' + new Date(db.sync.at).toLocaleString() : ''}`;
+  }
+
+  function scheduleCloudSync(delay = 1500) {
+    clearTimeout(cloudTimer);
+    cloudTimer = setTimeout(cloudSync, delay);
+  }
+
+  async function cloudSync() {
+    clearTimeout(cloudTimer);
+    if (!db.cloud || loadFailed) return setSync('off');
+    if (cloudBusy) { cloudAgain = true; return; }
+    cloudBusy = true;
+    setSync('busy');
+    try {
+      for (let attempt = 0; attempt < 5; attempt++) {
+        if (!db.sync.dirty) {
+          const { rev } = await cloudCall({ a: 'rev' });
+          if (rev !== db.sync.rev) {
+            const L = await cloudCall({ a: 'load' });
+            applyRemote(L, db.sync.dirty); // 下載期間若有新修改就改用合併
+            if (db.sync.dirty) continue;
+          }
+          break;
+        }
+        const seq = changeSeq;
+        const r = await pushOnce(db.sync.force);
+        if (r.ok) {
+          db.sync.rev = r.rev;
+          db.sync.force = false;
+          if (seq === changeSeq) db.sync.dirty = false;
+          saveLocal(true);
+          if (!db.sync.dirty) break;
+        } else if (r.conflict) {
+          applyRemote(await cloudCall({ a: 'load' }), true);
+        } else throw new Error('上傳照片失敗');
+      }
+      db.sync.at = Date.now();
+      saveLocal();
+      setSync(db.sync.dirty ? 'pending' : 'ok');
+    } catch (e) {
+      setSync(db.sync.dirty ? 'pending' : 'err', e.message);
+      if (e.auth) toast('雲端存取密碼錯誤，請到設定重新連線', 'err');
+    } finally {
+      cloudBusy = false;
+      if (cloudAgain) { cloudAgain = false; scheduleCloudSync(300); }
+    }
+  }
+
+  async function cloudConnect() {
+    const url = $('#cloudUrl').value.trim(), key = $('#cloudKey').value;
+    if (!/^https:\/\/script\.google(usercontent)?\.com\/\S+$/.test(url) && !/^http:\/\/(127\.0\.0\.1|localhost)(:\d+)?\//.test(url)) {
+      return toast('請貼上 Apps Script 網頁應用程式網址（https://script.google.com/…/exec）', 'err');
+    }
+    if (!key) return toast('請輸入存取密碼', 'err');
+    const cfg = { url, key };
+    const btn = $('[data-act="cloud-connect"]');
+    btn.disabled = true; btn.textContent = '連線中…';
+    try {
+      const info = await cloudCall({ a: 'ping' }, cfg);
+      let mode = 'upload';
+      if (info.rev > 0 && info.recipes > 0) {
+        mode = db.recipes.length && !db.pristine ? await modal({
+          title: '雲端已有資料',
+          body: `<p>雲端有 ${info.recipes} 道食譜，這台裝置有 ${db.recipes.length} 道。要怎麼處理？</p>
+            <p class="small"><b>下載雲端</b>：用雲端資料取代這台的資料。<br><b>合併兩邊</b>：兩邊的食譜都保留，同一道以較新的為準。<br><b>上傳本機</b>：用這台的資料覆蓋雲端。</p>`,
+          buttons: [{ label: '取消', value: null }, { label: '上傳本機', cls: 'danger', value: 'upload' }, { label: '合併兩邊', value: 'merge' }, { label: '下載雲端', cls: 'primary', value: 'download' }],
+        }) : 'download';
+        if (!mode) return;
+      }
+      db.cloud = cfg;
+      db.sync = { rev: info.rev, dirty: false, force: false, photos: [], at: 0 };
+      if (mode === 'download') applyRemote(await cloudCall({ a: 'load' }), false);
+      else if (mode === 'merge') applyRemote(await cloudCall({ a: 'load' }), true);
+      else { db.sync.dirty = true; db.sync.force = true; }
+      saveLocal(true);
+      await cloudSync();
+      render();
+      toast(cloudState.s === 'ok' ? '已連線 Google 雲端' : '已設定，但同步失敗：' + cloudState.msg, cloudState.s === 'ok' ? '' : 'err');
+    } catch (e) {
+      toast('連線失敗：' + e.message, 'err');
+    } finally {
+      if (btn.isConnected) { btn.disabled = false; btn.textContent = '連線'; }
+    }
   }
 
   // ---------------------------------------------------------------- 事件
@@ -994,6 +1227,7 @@
         if (!(await confirmBox('刪除食譜', `確定要刪除「${esc(r.name)}」嗎？此動作無法復原。`, '刪除', true))) break;
         db.recipes = db.recipes.filter(x => x.id !== r.id);
         db.plan = db.plan.filter(p => p.recipeId !== r.id);
+        db.deleted[r.id] = Date.now();
         persist(true); draft = null; location.hash = '#/'; toast('已刪除');
         break;
       }
@@ -1006,8 +1240,8 @@
       case 'plan-rm': db.plan.splice(+el.dataset.k, 1); persist(); render(); break;
       case 'plan-clear': if (await confirmBox('清空備料單', '確定要清空備料單嗎？（食譜不會被刪除）', '清空', true)) { db.plan = []; persist(); render(); } break;
       // 單價
-      case 'price-add': priceFilter = ''; db.prices.push(normPrice({})); persist(); render(); { const ins = $$('[data-price$=".name"]'); ins.length && ins[ins.length - 1].focus(); } break;
-      case 'price-rm': db.prices.splice(+el.dataset.k, 1); persist(); render(); break;
+      case 'price-add': priceFilter = ''; db.prices.push(normPrice({})); db.pricesUpdatedAt = Date.now(); persist(); render(); { const ins = $$('[data-price$=".name"]'); ins.length && ins[ins.length - 1].focus(); } break;
+      case 'price-rm': db.prices.splice(+el.dataset.k, 1); db.pricesUpdatedAt = Date.now(); persist(); render(); break;
       case 'price-import': {
         const have = new Set(db.prices.map(p => normName(p.name)));
         let n = 0;
@@ -1015,15 +1249,33 @@
           const k = normName(i.name);
           if (k && !have.has(k)) { have.add(k); db.prices.push(normPrice({ name: i.name.trim(), perQty: 1, perUnit: U.lookup(i.unit) ? (U.lookup(i.unit).dim === 'mass' ? 'kg' : 'L') : i.unit })); n++; }
         }
+        if (n) db.pricesUpdatedAt = Date.now();
         persist(); render(); toast(n ? `已帶入 ${n} 項食材，請填寫價格` : '所有食材都已在單價表中');
         break;
       }
+      // 雲端
+      case 'cloud-connect': cloudConnect(); break;
+      case 'cloud-sync': case 'cloud-pill':
+        if (act === 'cloud-pill' && cloudState.s === 'err' && route.name !== 'settings') { location.hash = '#/settings'; break; }
+        await cloudSync();
+        if (cloudState.s === 'err') toast('同步失敗：' + cloudState.msg, 'err');
+        break;
+      case 'cloud-off':
+        if (await confirmBox('中斷雲端連線', '這台裝置將不再與 Google 試算表同步（雲端與本機的資料都會保留）。', '中斷連線', true)) {
+          db.cloud = null; db.sync = { rev: 0, dirty: false, photos: [] }; saveLocal(true); setSync('off'); render();
+        }
+        break;
       // 設定
       case 'export': exportData(); break;
       case 'wipe': {
         const v = await modal({ title: '清除全部資料', body: '<p>將刪除所有食譜、單價與備料單，<b>無法復原</b>。建議先匯出備份。</p><p>請輸入「清除」確認：</p><input id="wipeOk">',
           buttons: [{ label: '取消', value: null }, { label: '清除全部', cls: 'danger', value: m => m.querySelector('#wipeOk').value.trim() }] });
-        if (v === '清除') { db = emptyDb(); persist(true); render(); toast('已清除全部資料'); } else if (v != null) toast('輸入不符，未清除');
+        if (v === '清除') {
+          const now = Date.now(), keep = { cloud: db.cloud, sync: db.sync, deleted: db.deleted };
+          db.recipes.forEach(r => { keep.deleted[r.id] = now; });
+          db = { ...emptyDb(), ...keep, pricesUpdatedAt: now };
+          persist(true); render(); toast('已清除全部資料');
+        } else if (v != null) toast('輸入不符，未清除');
         break;
       }
     }
@@ -1051,6 +1303,7 @@
       if (!p) return;
       if (f === 'price' || f === 'perQty') { const v = num(t.value); if (t.value.trim() && v == null) { t.classList.add('invalid'); return; } t.classList.remove('invalid'); p[f] = f === 'perQty' ? v || 1 : v; }
       else p[f] = t.value;
+      db.pricesUpdatedAt = Date.now();
       persist();
       const up = $('#up' + k); if (up) up.innerHTML = unitPriceText(p);
     }
@@ -1073,7 +1326,7 @@
   window.addEventListener('beforeunload', e => { flush(); if (draft && draft.dirty) { e.preventDefault(); e.returnValue = ''; } });
   document.addEventListener('visibilitychange', async () => {
     if (!document.hidden && wakeLock === null && $('[data-act="wake"].on')) { try { wakeLock = await navigator.wakeLock.request('screen'); } catch (e) { /* ignore */ } }
-    if (!document.hidden) tick();
+    if (!document.hidden) { tick(); if (db && db.cloud) cloudSync(); }
   });
 
   // ---------------------------------------------------------------- 啟動
@@ -1084,10 +1337,13 @@
     if (d) db = normalizeDb(d);
     else {
       db = emptyDb();
-      if (!loadFailed) { const s = sampleData(); db.recipes = s.recipes; db.prices = s.prices; persist(true); }
+      if (!loadFailed) { const s = sampleData(); db.recipes = s.recipes; db.prices = s.prices; db.pristine = true; saveLocal(true); }
     }
     window.addEventListener('hashchange', onHash);
     render();
+    if (db.cloud) cloudSync();
+    setInterval(() => { if (!document.hidden && db.cloud) cloudSync(); }, 60000);
+    window.addEventListener('online', () => { if (db.cloud) cloudSync(); });
     document.body.classList.add('ready');
     if (!IS_DESKTOP && 'serviceWorker' in navigator && /^https?:$/.test(location.protocol)) navigator.serviceWorker.register('sw.js').catch(() => {});
     if (!IS_DESKTOP && navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {});

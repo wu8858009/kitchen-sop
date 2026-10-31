@@ -13,7 +13,7 @@
 <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
 <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
 <title>廚房 SOP 食譜</title>
-<link rel="stylesheet" href="styles.css?v=1">
+<link rel="stylesheet" href="styles.css?v=2">
 </head>
 <body>
 <header class="topbar">
@@ -24,12 +24,14 @@
     <a href="#/prices" data-tab="prices"><span class="ti">💲</span><span>單價表</span></a>
     <a href="#/settings" data-tab="settings"><span class="ti">⚙️</span><span>設定</span></a>
   </nav>
+  <button id="syncPill" class="sync-pill" data-act="cloud-pill" hidden></button>
 </header>
 <main id="app"><div class="page"><p class="muted">載入中…</p></div></main>
 <div id="timers" class="timers" aria-live="polite"></div>
 <div id="toast" role="status"></div>
 <div id="modal"></div>
-<script src="units.js?v=1"></script>
-<script src="app.js?v=1"></script>
+<script src="config.js?v=2"></script>
+<script src="units.js?v=2"></script>
+<script src="app.js?v=2"></script>
 </body>
 </html>
