@@ -119,9 +119,11 @@ def _selftest(out_path):
         time.sleep(0.3)
         result["first_row"] = _window.evaluate_js("document.querySelector('#ing tr:not(.grp)').innerText")
         result["data_path"] = str(DATA_FILE)
-        time.sleep(0.6)
+        time.sleep(3)  # 有設定雲端時等同步完成
+        result["names"] = _window.evaluate_js("window.__kitchen.db.recipes.map(r => r.name)")
+        result["sync"] = _window.evaluate_js("JSON.stringify(window.__kitchen.db.sync)")
         result["file_exists"] = DATA_FILE.exists()
-        result["ok"] = n > 0 and result["file_exists"]
+        result["ok"] = bool(result["names"]) and result["file_exists"]
     except Exception as e:  # noqa: BLE001
         result["error"] = repr(e)
     Path(out_path).write_text(json.dumps(result, ensure_ascii=False, indent=1), encoding="utf-8")

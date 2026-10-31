@@ -88,6 +88,20 @@ h2 { font-size: 1.15rem; margin: 0 0 .6rem; }
   h1 { font-size: 1.35rem; }
 }
 
+/* 雲端同步狀態 */
+.sync-pill {
+  margin-left: auto; display: inline-flex; align-items: center; gap: 4px; min-height: 32px; padding: 0 12px;
+  border-radius: 999px; border: 1px solid var(--line); background: var(--card); color: var(--muted); font: inherit; font-size: .85rem; font-weight: 600; cursor: pointer;
+}
+.sync-pill[hidden] { display: none; }
+.sync-pill.ok { color: var(--ok); }
+.sync-pill.busy span:first-child { display: inline-block; animation: spin 1s linear infinite; }
+.sync-pill.err { color: var(--red); border-color: var(--red); }
+.sync-pill.pending { color: var(--warn); }
+@keyframes spin { to { transform: rotate(360deg); } }
+@media (max-width: 719px) { .sync-pill { position: absolute; right: 12px; } .sp-t { display: none; } }
+.cloud-form { grid-template-columns: 1fr; margin-bottom: 12px; }
+
 /* 頁面 */
 .page { max-width: 1000px; margin: 0 auto; padding: 16px; }
 .page-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: 12px; }
@@ -305,7 +319,7 @@ body.has-timers #toast { bottom: auto; top: calc(70px + env(safe-area-inset-top)
 @media print {
   :root { --bg: #fff; --card: #fff; --fg: #000; --muted: #555; --line: #bbb; --accent: #000; --accent-soft: #fff; --red: #000; --red-soft: #fff; --shadow: none; }
   body { padding: 0 !important; font-size: 12pt; }
-  .topbar, .tabs, .timers, #toast, #modal, .no-print, .btn, .icon, .hint { display: none !important; }
+  .topbar, .tabs, .timers, .sync-pill, #toast, #modal, .no-print, .btn, .icon, .hint { display: none !important; }
   .print-only { display: block; }
   .page { max-width: none; padding: 0; }
   .card { border: none; padding: 0; margin-bottom: 14pt; break-inside: auto; }
