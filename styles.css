@@ -141,7 +141,8 @@ input, select, textarea {
 }
 textarea { resize: vertical; }
 input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); outline-offset: -1px; border-color: var(--accent); }
-input[type=checkbox] { width: 22px; height: 22px; min-height: 0; accent-color: var(--accent); }
+input[type=checkbox], input[type=radio] { width: 22px; height: 22px; min-height: 0; padding: 0; flex: none; accent-color: var(--accent); }
+input[type=range] { padding: 0; min-height: 0; border: none; }
 input.big { font-size: 1.3rem; }
 .invalid { border-color: var(--red) !important; background: var(--red-soft) !important; }
 .search { flex: 1; min-width: 180px; margin-bottom: 12px; }
@@ -329,6 +330,14 @@ body:has(.dragging) { user-select: none; -webkit-user-select: none; }
 .ing-table tr.grp.sub td { color: var(--fg); font-weight: 700; border-bottom: 2px solid var(--line); }
 .cc-grp.cc-sub { color: var(--fg); font-size: .95em; border-bottom: 1.5px solid var(--fg); padding-bottom: 1px; }
 .ed-row.ing.is-head .n { font-weight: 700; color: var(--accent); border-color: var(--accent); }
+
+/* 計時器鈴聲 */
+.ring-list { display: flex; flex-direction: column; margin-bottom: 12px; }
+.ring-row { display: flex; align-items: center; gap: 10px; padding: 6px 0; border-bottom: 1px solid var(--line); }
+.ring-row .ck-lbl { flex: 1; min-width: 0; }
+.ring-row .ring-file { max-width: 40%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ring-vol { margin-top: 12px; max-width: 360px; }
+.ring-vol input[type=range] { width: 100%; accent-color: var(--accent); }
 
 /* 單價表 */
 .price-head, .price-row { display: grid; grid-template-columns: 2fr 1fr .7fr .9fr 1.6fr 38px; gap: 6px; align-items: center; }

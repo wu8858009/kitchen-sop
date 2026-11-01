@@ -2,7 +2,7 @@
 (() => {
   'use strict';
   const U = window.KUnits;
-  const APP_VERSION = '1.8.1';
+  const APP_VERSION = '1.9.0';
   const IS_DESKTOP = /[?&]desktop=1\b/.test(location.search);
 
   const $ = (s, el = document) => el.querySelector(s);
@@ -117,7 +117,7 @@
 
   // ---------------------------------------------------------------- 資料模型
   function emptyDb() {
-    return { version: 1, recipes: [], prices: [], plan: [], settings: { unitMode: 'auto' }, deleted: {}, pricesUpdatedAt: 0, cloud: null, sync: { rev: 0, dirty: false, photos: [] } };
+    return { version: 1, recipes: [], prices: [], plan: [], settings: { unitMode: 'auto', ringTone: 'beep', ringVol: 0.8 }, deleted: {}, pricesUpdatedAt: 0, cloud: null, sync: { rev: 0, dirty: false, photos: [] } };
   }
 
   function normRecipe(r) {
@@ -572,19 +572,73 @@
       if (audioCtx.state === 'suspended') audioCtx.resume();
     } catch (e) { /* 無音效 */ }
   }
-  function beep() {
-    if (!audioCtx) return;
-    const t0 = audioCtx.currentTime;
-    for (let k = 0; k < 3; k++) {
-      const o = audioCtx.createOscillator(), g = audioCtx.createGain();
-      o.type = 'square'; o.frequency.value = 880;
-      g.gain.setValueAtTime(0.0001, t0 + k * 0.25);
-      g.gain.exponentialRampToValueAtTime(0.25, t0 + k * 0.25 + 0.01);
-      g.gain.exponentialRampToValueAtTime(0.0001, t0 + k * 0.25 + 0.18);
-      o.connect(g).connect(audioCtx.destination);
-      o.start(t0 + k * 0.25); o.stop(t0 + k * 0.25 + 0.2);
-    }
+  // ---- 鈴聲：內建的用 Web Audio 合成（不需要音檔）；也可以上傳自己的音檔（只存在這台裝置）
+  // period = 響鈴期間每隔幾秒重播一次
+  const RING_TONES = {
+    beep: { name: '嗶嗶聲', period: 1.8, play: n => { for (let k = 0; k < 3; k++) n(880, k * 0.25, 0.18, 'square', 0.25); } },
+    dingdong: { name: '叮咚', period: 2.2, play: n => { n(784, 0, 0.9, 'sine', 0.5); n(659, 0.45, 1.2, 'sine', 0.5); } },
+    bell: { name: '老式計時器鈴', period: 1.6, play: n => { for (let k = 0; k < 14; k++) n(k % 2 ? 1500 : 1250, k * 0.07, 0.06, 'triangle', 0.35); } },
+    chime: { name: '柔和鐘聲', period: 2.6, play: n => { [523, 659, 784, 1047].forEach((f, k) => n(f, k * 0.18, 1.6, 'sine', 0.3)); } },
+    alarm: { name: '急促警報', period: 1.2, play: n => { for (let k = 0; k < 4; k++) n(1000, k * 0.14, 0.1, 'sawtooth', 0.22, 1600); } },
+    marimba: { name: '木琴', period: 2, play: n => { [1047, 1319, 1568, 2093].forEach((f, k) => { n(f, k * 0.13, 0.35, 'sine', 0.45); n(f * 4, k * 0.13, 0.08, 'sine', 0.08); }); } },
+  };
+  const RING_FILE_KEY = 'ksop.ringFile';
+  let ringBuf = null, ringBufSrc = '', ringSrc = null;
+  const ringFile = () => { try { return JSON.parse(localStorage.getItem(RING_FILE_KEY) || 'null'); } catch (e) { return null; } };
+  const ringVol = () => Math.max(0, Math.min(1, db.settings.ringVol == null ? 0.8 : +db.settings.ringVol));
+
+  async function customBuffer() {
+    const f = ringFile();
+    if (!f || !audioCtx) return null;
+    if (ringBuf && ringBufSrc === f.data) return ringBuf;
+    const bin = atob(f.data.split(',')[1]), bytes = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+    ringBuf = await new Promise((res, rej) => audioCtx.decodeAudioData(bytes.buffer, res, rej));
+    ringBufSrc = f.data;
+    return ringBuf;
   }
+  /** 播放一次鈴聲；custom 會一直重複，直到 stopRing() */
+  async function playRing(tone, maxSec) {
+    if (!audioCtx) return;
+    const vol = ringVol(), t0 = audioCtx.currentTime + 0.02;
+    if (tone === 'custom') {
+      try {
+        const buf = await customBuffer();
+        if (buf) {
+          stopRing();
+          const src = audioCtx.createBufferSource(), g = audioCtx.createGain();
+          src.buffer = buf; src.loop = !maxSec; g.gain.value = vol;
+          src.connect(g).connect(audioCtx.destination);
+          src.start(t0);
+          if (maxSec) src.stop(t0 + Math.min(maxSec, buf.duration));
+          ringSrc = src;
+          return;
+        }
+      } catch (e) { /* 音檔無法播放：改用預設 */ }
+      tone = 'beep';
+    }
+    const def = RING_TONES[tone] || RING_TONES.beep;
+    // n(頻率, 開始, 長度, 波形, 音量, 滑到的頻率)
+    def.play((f, at, dur, type, peak, f2) => {
+      const o = audioCtx.createOscillator(), g = audioCtx.createGain();
+      o.type = type; o.frequency.setValueAtTime(f, t0 + at);
+      if (f2) o.frequency.linearRampToValueAtTime(f2, t0 + at + dur);
+      g.gain.setValueAtTime(0.0001, t0 + at);
+      g.gain.exponentialRampToValueAtTime(Math.max(0.0002, peak * vol), t0 + at + 0.01);
+      g.gain.exponentialRampToValueAtTime(0.0001, t0 + at + dur);
+      o.connect(g).connect(audioCtx.destination);
+      o.start(t0 + at); o.stop(t0 + at + dur + 0.02);
+    });
+  }
+  function stopRing() { if (ringSrc) { try { ringSrc.stop(); } catch (e) { /* 已停止 */ } ringSrc = null; } }
+  function currentTone() { const t = db.settings.ringTone || 'beep'; return t === 'custom' && !ringFile() ? 'beep' : t; }
+  function startRinging() {
+    const tone = currentTone();
+    playRing(tone);
+    if (tone !== 'custom') ringH = setInterval(() => playRing(tone), (RING_TONES[tone] || RING_TONES.beep).period * 1000);
+    else ringH = -1; // 音檔自己循環
+  }
+  function stopRinging() { if (ringH > 0) clearInterval(ringH); ringH = null; stopRing(); }
   const remaining = t => (t.paused != null ? t.paused : Math.max(0, (t.end - Date.now()) / 1000));
 
   function startTimer(label, seconds) {
@@ -609,8 +663,8 @@
     if (changed) renderTimers();
     else $$('#timers .t-time').forEach(el => { const t = timers.find(x => x.id === el.dataset.t); if (t && !t.done) el.textContent = fmtDur(remaining(t)); });
     const ringing = timers.filter(t => t.done && Date.now() - t.doneAt < 120000);
-    if (ringing.length && !ringH) { beep(); ringH = setInterval(beep, 1800); }
-    if (!ringing.length && ringH) { clearInterval(ringH); ringH = null; }
+    if (ringing.length && !ringH) startRinging();
+    if (!ringing.length && ringH) stopRinging();
     if (!timers.length) { clearInterval(tickH); tickH = null; }
   }
   function renderTimers() {
@@ -1154,6 +1208,7 @@
   function viewSettings() {
     return `<div class="page">
       <h1 class="head-title">設定與資料</h1>
+      ${viewRingSettings()}
       <section class="card">
         <h2>單位顯示</h2>
         <label class="fld">倍數換算後的單位顯示方式${unitModeSelect('unitMode3')}</label>
@@ -1196,6 +1251,27 @@
       <p class="muted small center">廚房 SOP 食譜及倍數計算系統 v${APP_VERSION}${IS_DESKTOP ? '（Windows 版）' : '（網頁版）'}</p>
     </div>`;
   }
+  function viewRingSettings() {
+    const cur = db.settings.ringTone || 'beep', f = ringFile();
+    const row = (id, name, extra = '') => `<div class="ring-row">
+        <label class="ck-lbl"><input type="radio" name="ringTone" value="${id}" data-act-change="ring-tone" ${cur === id ? 'checked' : ''} ${id === 'custom' && !f ? 'disabled' : ''}> ${name}</label>${extra}
+        <button class="btn sm" data-act="ring-test" data-tone="${id}" ${id === 'custom' && !f ? 'disabled' : ''}>▶ 試聽</button></div>`;
+    return `<section class="card">
+        <h2>⏰ 計時器鈴聲</h2>
+        <div class="ring-list">
+          ${Object.entries(RING_TONES).map(([id, t]) => row(id, t.name)).join('')}
+          ${row('custom', '自訂音檔', `<span class="muted small ring-file">${f ? esc(f.name) : '尚未上傳'}</span>`)}
+        </div>
+        <div class="btn-row">
+          <label class="btn">⬆ 上傳鈴聲<input type="file" accept="audio/*,.mp3,.m4a,.wav,.ogg,.aac" data-act-change="ring-file" hidden></label>
+          ${f ? '<button class="btn ghost" data-act="ring-file-rm">移除自訂音檔</button>' : ''}
+        </div>
+        <label class="fld ring-vol">音量 <span id="ringVolTxt">${Math.round(ringVol() * 100)}%</span>
+          <input type="range" min="0" max="1" step="0.05" value="${ringVol()}" data-act-change="ring-vol" id="ringVol"></label>
+        <p class="hint">時間到會重複響鈴 2 分鐘，或按「關閉」停止。自訂音檔（mp3、m4a、wav，3 MB 以內）只存在這台裝置；鈴聲選擇會同步到其他裝置，沒有音檔的裝置會改用嗶嗶聲。手機請確認沒有開靜音。</p>
+      </section>`;
+  }
+
   async function fillSettingsInfo() {
     const el = $('#dataInfo');
     const base = `共 ${db.recipes.length} 道食譜、${db.prices.length} 筆單價。`;
@@ -1613,6 +1689,11 @@
       }
       case 'plan-rm': db.plan.splice(+el.dataset.k, 1); persist(); render(); break;
       case 'tr-draft': translateDraft(); break;
+      case 'ring-test': ensureAudio(); stopRing(); playRing(el.dataset.tone, 5); break;
+      case 'ring-file-rm':
+        try { localStorage.removeItem(RING_FILE_KEY); } catch (e) { /* ignore */ }
+        if (db.settings.ringTone === 'custom') { db.settings.ringTone = 'beep'; persist(); }
+        render(); toast('已移除自訂音檔'); break;
       // 小抄
       case 'cheat-from-recipe': cheatAddRecipe(el.dataset.id, vs(el.dataset.id).mult); persist(); location.hash = '#/cheat'; break;
       case 'cheat-from-plan': db.plan.forEach(p => cheatAddRecipe(p.recipeId, p.mult)); persist(); if (route.name === 'cheat') render(); else location.hash = '#/cheat'; break;
@@ -1754,6 +1835,29 @@
       updateRecipeComputed(); updatePlanTotal(); updateCheat();
     } else if (act === 'photo' && t.files[0]) {
       try { draft.r.photo = await resizeImage(t.files[0]); draft.dirty = true; rerenderEdit(); } catch (err) { toast(err.message, 'err'); }
+    } else if (act === 'ring-tone') {
+      db.settings.ringTone = t.value; persist();
+      ensureAudio(); stopRing(); playRing(t.value, 5);
+    } else if (act === 'ring-vol') {
+      db.settings.ringVol = +t.value; persist();
+      $('#ringVolTxt').textContent = Math.round(+t.value * 100) + '%';
+      ensureAudio(); stopRing(); playRing(currentTone(), 3);
+    } else if (act === 'ring-file' && t.files[0]) {
+      const file = t.files[0];
+      t.value = '';
+      if (file.size > 3 * 1024 * 1024) return toast('音檔太大，請用 3 MB 以內的檔案', 'err');
+      const data = await new Promise(res => { const r = new FileReader(); r.onload = () => res(r.result); r.onerror = () => res(null); r.readAsDataURL(file); });
+      ensureAudio();
+      try {
+        const bin = atob(String(data).split(',')[1]), bytes = new Uint8Array(bin.length);
+        for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+        await new Promise((res, rej) => audioCtx.decodeAudioData(bytes.buffer, res, rej));
+      } catch (e) { return toast('無法播放這個音檔，請改用 mp3、m4a 或 wav', 'err'); }
+      try { localStorage.setItem(RING_FILE_KEY, JSON.stringify({ name: file.name, data })); }
+      catch (e) { return toast('裝置空間不足，無法儲存音檔', 'err'); }
+      db.settings.ringTone = 'custom'; persist();
+      render(); toast('已設定自訂鈴聲');
+      playRing('custom', 5);
     } else if (act === 'import' && t.files[0]) {
       await importData(t.files[0]); t.value = '';
     }
