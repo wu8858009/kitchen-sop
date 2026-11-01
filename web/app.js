@@ -2,7 +2,7 @@
 (() => {
   'use strict';
   const U = window.KUnits;
-  const APP_VERSION = '1.7.2';
+  const APP_VERSION = '1.7.3';
   const IS_DESKTOP = /[?&]desktop=1\b/.test(location.search);
 
   const $ = (s, el = document) => el.querySelector(s);
@@ -325,7 +325,8 @@
       };
       m.onkeydown = e => {
         if (e.key === 'Escape') close(null);
-        else if (e.key === 'Enter' && e.target.tagName === 'INPUT') { const i = buttons.findIndex(b => /primary|danger/.test(b.cls || '')); if (i >= 0) { e.preventDefault(); pick(i); } }
+        // 輸入法選字時按的 Enter 不算「確定」
+        else if (e.key === 'Enter' && e.target.tagName === 'INPUT' && !e.isComposing && e.keyCode !== 229) { const i = buttons.findIndex(b => /primary|danger/.test(b.cls || '')); if (i >= 0) { e.preventDefault(); pick(i); } }
       };
       const f = m.querySelector('input,textarea');
       setTimeout(() => (f || m.querySelector('.btn.primary') || m.querySelector('.btn')).focus(), 30);
@@ -1659,8 +1660,12 @@
     }
   });
 
-  document.addEventListener('input', e => {
-    const t = e.target;
+  // 中文輸入法（注音、倉頡…）選字中不處理，選好字（compositionend）後再處理；
+  // 否則重畫畫面或寫入半成品的注音符號會打斷輸入法
+  document.addEventListener('input', e => { if (!e.isComposing) onInput(e.target); });
+  document.addEventListener('compositionend', e => onInput(e.target));
+
+  function onInput(t) {
     if (t.id === 'q') { listFilter.q = t.value; updateList(); return; }
     if (t.id === 'pq') { priceFilter = t.value; const pos = t.selectionStart; render(); const n = $('#pq'); n.focus(); n.setSelectionRange(pos, pos); return; }
     if (t.id === 'mult') { const m = parseMult(t.value); if (m) setMult(m); return; }
@@ -1703,7 +1708,7 @@
       persist();
       const up = $('#up' + k); if (up) up.innerHTML = unitPriceText(p);
     }
-  });
+  }
 
   document.addEventListener('change', async e => {
     const t = e.target, act = t.dataset.actChange;
