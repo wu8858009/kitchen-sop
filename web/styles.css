@@ -434,6 +434,8 @@ body:has(.dragging) { user-select: none; -webkit-user-select: none; }
 .ocr-st { min-width: 170px; font-size: .8rem; }
 .ocr-st > span { font-weight: 700; font-size: 1rem; }
 .ocr-raw { margin-top: 10px; }
+.ocr-crop { display: flex; align-items: center; gap: 12px; margin: 10px 0; padding: 8px; border: 1px solid var(--line); border-radius: 10px; }
+.ocr-crop img { width: 120px; height: 120px; object-fit: cover; border-radius: 8px; flex: none; }
 .ocr-raw textarea { width: 100%; font-family: ui-monospace, Consolas, monospace; font-size: .82rem; margin: 6px 0; }
 @media (max-width: 899px) { .ocr-layout { grid-template-columns: 1fr; } .ocr-photo { position: static; max-height: 38vh; } }
 
