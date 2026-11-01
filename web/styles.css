@@ -421,6 +421,15 @@ body:has(.dragging) { user-select: none; -webkit-user-select: none; }
 .ocr-table td.l { text-align: left; }
 @media (max-width: 719px) { .ocr-grid { grid-template-columns: 1fr; } .ocr-grid textarea { min-height: 180px; } }
 
+/* 快捷鍵說明 */
+.modal.kbd-modal { width: min(720px, 100%); }
+.kbd-list { columns: 2 300px; column-gap: 24px; }
+.kbd-h { margin: 10px 0 4px; font-size: .9rem; color: var(--accent); break-after: avoid; }
+.kbd-table { border-collapse: collapse; width: 100%; font-size: .88rem; break-inside: avoid; }
+.kbd-table td { padding: 3px 4px; border-bottom: 1px solid var(--line); vertical-align: top; }
+.kbd-table td:first-child { white-space: nowrap; width: 1%; padding-right: 10px; }
+kbd { display: inline-block; min-width: 1.6em; padding: 1px 6px; border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 6px; background: var(--bg); font: 600 .8rem ui-monospace, Consolas, monospace; text-align: center; }
+
 /* 單價表 */
 .price-head, .price-row { display: grid; grid-template-columns: 2fr 1fr .7fr .9fr 1.6fr 38px; gap: 6px; align-items: center; }
 .price-head { font-size: .8rem; color: var(--muted); font-weight: 600; padding-bottom: 6px; }
