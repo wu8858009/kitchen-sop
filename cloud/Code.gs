@@ -313,7 +313,9 @@ function ocr_(req) {
   const blob = Utilities.newBlob(bytes, String(req.mime || "image/jpeg"), "sop-ocr.jpg");
   let id = "";
   try {
-    id = Drive.Files.create({ name: "SOP照片辨識（暫存，可刪除）", mimeType: "application/vnd.google-apps.document" }, blob, { ocrLanguage: "zh-TW" }).id;
+    const meta = { name: "SOP照片辨識（暫存，可刪除）", mimeType: "application/vnd.google-apps.document" };
+    try { id = Drive.Files.create(meta, blob, { ocrLanguage: "zh" }).id; }
+    catch (x) { id = Drive.Files.create(meta, blob).id; } // 語言提示不被接受時改用自動判斷
     const text = DocumentApp.openById(id).getBody().getText();
     return { ok: true, text: text };
   } catch (e) {
