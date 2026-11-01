@@ -2,7 +2,7 @@
 (() => {
   'use strict';
   const U = window.KUnits;
-  const APP_VERSION = '1.9.1';
+  const APP_VERSION = '2.0.0';
   const IS_DESKTOP = /[?&]desktop=1\b/.test(location.search);
 
   const $ = (s, el = document) => el.querySelector(s);
@@ -117,7 +117,7 @@
 
   // ---------------------------------------------------------------- 資料模型
   function emptyDb() {
-    return { version: 1, recipes: [], prices: [], plan: [], settings: { unitMode: 'auto', ringTone: 'beep', ringVol: 0.8 }, deleted: {}, pricesUpdatedAt: 0, cloud: null, sync: { rev: 0, dirty: false, photos: [] } };
+    return { version: 1, recipes: [], prices: [], sops: [], plan: [], settings: { unitMode: 'auto', ringTone: 'beep', ringVol: 0.8 }, deleted: {}, pricesUpdatedAt: 0, cloud: null, sync: { rev: 0, dirty: false, photos: [] } };
   }
 
   function normRecipe(r) {
@@ -144,6 +144,27 @@
     };
   }
 
+  // SOP 主資料（依紙本「單點 SOP」表單）
+  const normSopRow = x => {
+    x = x || {};
+    const str = k => String(x[k] == null ? '' : x[k]);
+    return { id: String(x.id || uid()), name: str('name'), qty: str('qty'), unit: str('unit') || '公克', vendor: str('vendor'),
+      specQty: str('specQty'), specUnit: str('specUnit') || '公克', price: str('price'), loss: str('loss'), yieldText: str('yieldText') };
+  };
+  function normSop(o) {
+    o = o || {};
+    const rv = o.review || {};
+    return {
+      id: String(o.id || uid()), title: String(o.title || ''),
+      review: { date: String(rv.date || ''), reviewer: String(rv.reviewer || ''), reviewee: String(rv.reviewee || ''), result: rv.result === 'pass' || rv.result === 'fail' ? rv.result : '', retake: String(rv.retake || '') },
+      rows: (Array.isArray(o.rows) ? o.rows : []).map(normSopRow),
+      steps: String(o.steps || ''), notes: String(o.notes || ''), photo: typeof o.photo === 'string' ? o.photo : '',
+      net: o.net == null || o.net === '' ? '' : String(o.net), gross: o.gross == null || o.gross === '' ? '' : String(o.gross),
+      yieldText: String(o.yieldText || ''),
+      createdAt: o.createdAt || Date.now(), updatedAt: o.updatedAt || Date.now(),
+    };
+  }
+
   function normPrice(p) {
     return { id: String(p.id || uid()), name: String(p.name || ''), price: num(p.price), perQty: num(p.perQty) || 1, perUnit: String(p.perUnit || '') };
   }
@@ -158,6 +179,7 @@
       plan: Array.isArray(d.plan) ? d.plan.filter(x => x && x.recipeId).map(x => ({ recipeId: String(x.recipeId), mult: num(x.mult) || 1 })) : [],
       settings: Object.assign(e.settings, d.settings || {}),
       deleted: d.deleted && typeof d.deleted === 'object' && !Array.isArray(d.deleted) ? { ...d.deleted } : {},
+      sops: Array.isArray(d.sops) ? d.sops.map(normSop) : [],
       pricesUpdatedAt: +d.pricesUpdatedAt || 0,
       pristine: !!d.pristine, // 只有自動放入、沒動過的範例資料
       cloud: d.cloud && d.cloud.url ? { url: String(d.cloud.url), key: String(d.cloud.key || '') } : null,
@@ -375,17 +397,20 @@
   function render() {
     route = parseRoute();
     const app = $('#app');
-    $$('.tabs a').forEach(a => a.classList.toggle('on', a.dataset.tab === ({ r: 'list', edit: 'list', new: 'list' }[route.name] || route.name)));
+    $$('.tabs a').forEach(a => a.classList.toggle('on', a.dataset.tab === ({ r: 'list', edit: 'list', new: 'list', sop: 'sops' }[route.name] || route.name)));
     switch (route.name) {
       case 'r': app.innerHTML = viewRecipe(route.id); updateRecipeComputed(); break;
       case 'edit': case 'new': app.innerHTML = viewEdit(route.name === 'new' ? null : route.id); break;
       case 'plan': app.innerHTML = viewPlan(); updatePlanTotal(); break;
       case 'cheat': app.innerHTML = viewCheat(); updateCheat(); break;
+      case 'sops': app.innerHTML = viewSops(); updateSopList(); break;
+      case 'sop': app.innerHTML = viewSop(route.id); updateSopCalc(); break;
       case 'prices': app.innerHTML = viewPrices(); break;
       case 'settings': app.innerHTML = viewSettings(); fillSettingsInfo(); setSync(cloudState.s, cloudState.msg); break;
       default: app.innerHTML = viewList(); updateList();
     }
-    document.title = (route.name === 'r' && getRecipe(route.id) ? getRecipe(route.id).name + ' - ' : '') + '廚房 SOP 食譜';
+    const sopNow = route.name === 'sop' && getSop(route.id);
+    document.title = (route.name === 'r' && getRecipe(route.id) ? getRecipe(route.id).name + ' - ' : sopNow ? (sopNow.title || 'SOP') + ' - ' : '') + '廚房 SOP 食譜';
   }
   const notFound = () => `<div class="page"><div class="empty"><p>找不到這個食譜，可能已被刪除。</p><a class="btn primary" href="#/">回食譜列表</a></div></div>`;
 
@@ -1171,9 +1196,12 @@
 
   async function cheatPdf() {
     if (!cheatCfg().items.length) return toast('請先加入卡片');
+    sharePdf(buildCheatPdf);
+  }
+  async function sharePdf(build) {
     toast('正在產生 PDF…');
     let file;
-    try { file = await buildCheatPdf(); } catch (e) { return toast('產生 PDF 失敗：' + e.message, 'err'); }
+    try { file = await build(); } catch (e) { return toast('產生 PDF 失敗：' + e.message, 'err'); }
     const canShare = (() => { try { return !!navigator.canShare && navigator.canShare({ files: [file] }); } catch (e) { return false; } })();
     const url = URL.createObjectURL(file);
     // 產生 PDF 需要一點時間，iOS 會認為已不是使用者點的，所以再請使用者點一次「分享／列印」
@@ -1198,6 +1226,267 @@
     const c = cheatCfg();
     el.className = `cheat-grid lay-${c.layout} fs-${c.size}`;
     el.innerHTML = c.items.map(it => cheatCard(it, c)).join('');
+  }
+
+  // ---------------------------------------------------------------- SOP 主資料
+  // 依紙本「單點 SOP」表單：食材明細、使用份量、廠商、規格、進價、耗損 → 自動算採購份量、成本、成本合計、售價、毛利
+  const TAX = 0.05; // 營業稅 5%：含稅售價 = 淨售價 × 1.05
+  const getSop = id => db.sops.find(o => o.id === id);
+  const n2 = v => (v == null || !isFinite(v) ? '' : (Math.round(v * 100) / 100).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }));
+  const money2 = v => (v == null || !isFinite(v) ? '—' : '$' + n2(v));
+
+  function sopRowCalc(x) {
+    const q = num(x.qty), loss = Math.min(99, Math.max(0, num(x.loss) || 0)), sq = num(x.specQty), pr = num(x.price);
+    const buy = q == null ? null : q / (1 - loss / 100);            // 採購份量（含損耗）
+    let cost = null, err = '';
+    if (buy != null && sq && pr != null) {
+      const c = U.convert(buy, x.unit, x.specUnit);
+      if (c == null) err = '單位不符'; else cost = c / sq * pr;     // 成本 = 採購份量 ÷ 規格 × 進價
+    }
+    return { buy, cost, err };
+  }
+  function sopTotals(o) {
+    let cost = 0, missing = 0;
+    for (const x of o.rows) {
+      if (!x.name.trim()) continue;
+      const c = sopRowCalc(x);
+      if (c.cost != null) cost += c.cost; else if (num(x.qty) != null) missing++;
+    }
+    const net = num(o.net), gross = num(o.gross);
+    const profit = net == null ? null : net - cost;
+    return { cost: Math.round(cost * 100) / 100, missing, net, gross, profit, margin: net ? profit / net : null };
+  }
+
+  let sopFilter = '';
+  function viewSops() {
+    return `<div class="page">
+      <div class="page-head"><h1 class="head-title">SOP 主資料</h1><div class="spacer"></div>
+        <button class="btn primary" data-act="sop-new">＋ 新增 SOP</button></div>
+      <p class="muted">依紙本 SOP 表單建立每道品項的主資料：填入使用份量、規格、進價、耗損，自動算出採購份量、成本、成本合計與毛利。</p>
+      <input id="sopq" class="search" type="search" placeholder="搜尋 SOP 名稱或食材…" value="${esc(sopFilter)}" autocomplete="off">
+      <div class="grid" id="sopList"></div>
+    </div>`;
+  }
+  function updateSopList() {
+    const el = $('#sopList');
+    if (!el) return;
+    const q = normName(sopFilter);
+    const list = db.sops.filter(o => !q || normName(o.title).includes(q) || o.rows.some(x => normName(x.name).includes(q)))
+      .sort((a, b) => a.title.localeCompare(b.title, 'zh-Hant'));
+    if (!db.sops.length) { el.innerHTML = '<div class="empty"><p>還沒有 SOP 主資料。</p><button class="btn primary" data-act="sop-new">＋ 新增 SOP</button></div>'; return; }
+    if (!list.length) { el.innerHTML = '<div class="empty"><p>沒有符合的 SOP。</p></div>'; return; }
+    el.innerHTML = list.map(o => {
+      const t = sopTotals(o), n = o.rows.filter(x => x.name.trim()).length;
+      return `<a class="rcard" href="#/sop/${encodeURIComponent(o.id)}">
+        <div class="thumb">${o.photo ? `<img src="${o.photo}" alt="">` : '<span>📋</span>'}</div>
+        <div class="rcard-body">
+          <div class="rname">${esc(o.title || '未命名 SOP')}</div>
+          <div class="muted small">${n} 項食材 · 成本 ${money2(t.cost)}${t.net != null ? ` · 淨售價 ${money2(t.net)}` : ''}</div>
+          ${t.margin != null ? `<div class="small cost-line">毛利 ${money2(t.profit)}（${(t.margin * 100).toFixed(1)}%）</div>` : ''}
+          ${o.review.result ? `<div class="small"><span class="badge ${o.review.result === 'pass' ? '' : 'red'}">${o.review.result === 'pass' ? '考核通過' : '考核不通過'}</span></div>` : ''}
+        </div></a>`;
+    }).join('');
+  }
+
+  function viewSop(id) {
+    const o = getSop(id);
+    if (!o) return `<div class="page"><div class="empty"><p>找不到這份 SOP，可能已被刪除。</p><a class="btn primary" href="#/sops">回 SOP 列表</a></div></div>`;
+    const rv = o.review;
+    const inp = (f, v, extra = '') => `<input data-sop="${f}" value="${esc(v)}" ${extra}>`;
+    const rows = o.rows.map((x, k) => `<tr data-k="${k}">
+        <td class="no">${k + 1}</td>
+        <td><input class="w-name" data-sop-row="${k}.name" value="${esc(x.name)}" placeholder="食材明細" list="dl-names"></td>
+        <td><input class="w-num" data-sop-row="${k}.qty" value="${esc(x.qty)}" inputmode="decimal"></td>
+        <td><input class="w-unit" data-sop-row="${k}.unit" value="${esc(x.unit)}" list="dl-units"></td>
+        <td><input class="w-vendor" data-sop-row="${k}.vendor" value="${esc(x.vendor)}" placeholder="廠商/品牌" list="dl-vendors"></td>
+        <td><input class="w-num" data-sop-row="${k}.specQty" value="${esc(x.specQty)}" inputmode="decimal"></td>
+        <td><input class="w-unit" data-sop-row="${k}.specUnit" value="${esc(x.specUnit)}" list="dl-units"></td>
+        <td><input class="w-num" data-sop-row="${k}.price" value="${esc(x.price)}" inputmode="decimal"></td>
+        <td class="calc" id="sb${k}"></td>
+        <td class="calc" id="sc${k}"></td>
+        <td><input class="w-yield" data-sop-row="${k}.yieldText" value="${esc(x.yieldText)}"></td>
+        <td><span class="pct"><input class="w-loss" data-sop-row="${k}.loss" value="${esc(x.loss)}" inputmode="decimal">%</span></td>
+        <td class="row-btns no-print">
+          <button class="icon" data-act="sop-row-mv" data-k="${k}" data-d="-1" ${k === 0 ? 'disabled' : ''} title="上移">↑</button>
+          <button class="icon danger" data-act="sop-row-rm" data-k="${k}" title="刪除">✕</button></td>
+      </tr>`).join('');
+    const names = [...new Set([...db.prices.map(p => p.name), ...db.recipes.flatMap(r => r.ingredients.filter(i => !isHead(i)).map(i => i.name))].map(x => x.trim()).filter(Boolean))];
+    const vendors = [...new Set(db.sops.flatMap(x => x.rows.map(r => r.vendor.trim())).filter(Boolean))];
+    return `<div class="page sop-page">
+      <div class="page-head no-print">
+        <a class="btn ghost" href="#/sops">← SOP 列表</a><div class="spacer"></div>
+        <button class="btn" data-act="sop-from-recipe">從食譜帶入</button>
+        <button class="btn" data-act="sop-print">🖨 列印</button>
+        <button class="btn" data-act="sop-dup">複製</button>
+        <button class="btn ghost" data-act="sop-del">刪除</button>
+      </div>
+      <div class="no-print">
+      <section class="card sop-top">
+        <label class="fld sop-title">品項名稱${inp('title', o.title, 'placeholder="例如：單點-肉品2026.06" autocomplete="off"')}</label>
+        <div class="sop-review">
+          <label class="fld">考核時間<input type="date" data-sop="review.date" value="${esc(rv.date)}"></label>
+          <label class="fld">考核人${inp('review.reviewer', rv.reviewer)}</label>
+          <label class="fld">被考核人${inp('review.reviewee', rv.reviewee)}</label>
+          <div class="fld">考核結果<div class="radio-row">
+            <label class="ck-lbl"><input type="radio" name="sopResult" value="pass" data-sop="review.result" ${rv.result === 'pass' ? 'checked' : ''}> 通過</label>
+            <label class="ck-lbl"><input type="radio" name="sopResult" value="fail" data-sop="review.result" ${rv.result === 'fail' ? 'checked' : ''}> 不通過</label></div></div>
+          <label class="fld">補考時間<input type="date" data-sop="review.retake" value="${esc(rv.retake)}"></label>
+        </div>
+      </section>
+
+      <section class="card">
+        <div class="sec-head"><h2>食材明細</h2><div class="spacer"></div><span class="muted small">灰底欄位自動計算</span></div>
+        <div class="sop-table-wrap"><table class="sop-table">
+          <thead><tr><th>NO</th><th>食材明細</th><th colspan="2">使用份量<small>（不含損耗）</small></th><th>廠商/品牌</th><th colspan="2">規格</th><th>進價<small>（未稅）</small></th>
+            <th class="calc">採購份量<small>（含損耗）</small></th><th class="calc">成本</th><th>總製成量</th><th>耗損</th><th class="no-print"></th></tr></thead>
+          <tbody id="sopRows">${rows}</tbody>
+        </table></div>
+        <div class="btn-row"><button class="btn" data-act="sop-row-add">＋ 新增食材</button></div>
+        <p class="hint">採購份量 = 使用份量 ÷ (1 − 耗損%)；成本 = 採購份量 ÷ 規格 × 進價（單位不同會自動換算，例如公克對公斤、台斤）。食材名稱和單價表相同時，規格與進價會自動帶入。</p>
+      </section>
+
+      <section class="card">
+        <h2>操作步驟</h2>
+        <textarea data-sop="steps" rows="6" placeholder="一行一個步驟">${esc(o.steps)}</textarea>
+      </section>
+
+      <div class="sop-two">
+        <section class="card">
+          <h2>照片</h2>
+          <div class="photo-row">
+            ${o.photo ? `<img src="${o.photo}" alt="">` : '<div class="photo-ph">📷</div>'}
+            <label class="btn">選擇照片<input type="file" accept="image/*" data-act-change="sop-photo" hidden></label>
+            ${o.photo ? '<button class="btn ghost" data-act="sop-photo-rm">移除</button>' : ''}
+          </div>
+        </section>
+        <section class="card">
+          <h2>注意事項</h2>
+          <textarea data-sop="notes" rows="5" placeholder="保存、衛生、出餐注意事項…">${esc(o.notes)}</textarea>
+        </section>
+      </div>
+
+      <section class="card sop-sum">
+        <div class="sum-cell calc"><span>成本合計</span><b id="sopCost"></b><small id="sopMiss"></small></div>
+        <label class="sum-cell"><span>淨售價</span>${inp('net', o.net, 'inputmode="decimal" placeholder="0"')}</label>
+        <label class="sum-cell"><span>含稅售價<small>（5%）</small></span>${inp('gross', o.gross, 'inputmode="decimal" placeholder="0"')}</label>
+        <div class="sum-cell calc"><span>毛利</span><b id="sopProfit"></b><small id="sopMargin"></small></div>
+        <label class="sum-cell"><span>製成量</span>${inp('yieldText', o.yieldText, 'placeholder="例如：1 份"')}</label>
+      </section>
+      </div>
+      <div class="print-only" id="sopPrint"></div>
+      <datalist id="dl-units">${COMMON_UNITS.concat(['公克', '公斤']).map(u => `<option value="${u}">`).join('')}</datalist>
+      <datalist id="dl-names">${names.map(n => `<option value="${esc(n)}">`).join('')}</datalist>
+      <datalist id="dl-vendors">${vendors.map(n => `<option value="${esc(n)}">`).join('')}</datalist>
+    </div>`;
+  }
+
+  /** 只更新計算欄位，不重畫輸入框（打字、輸入法不會被打斷） */
+  function updateSopCalc() {
+    const o = getSop(route.id);
+    if (!o || !$('#sopRows')) return;
+    o.rows.forEach((x, k) => {
+      const c = sopRowCalc(x), b = $('#sb' + k), co = $('#sc' + k);
+      if (b) b.textContent = c.buy == null ? '' : `${n2(c.buy)} ${x.unit}`;
+      if (co) co.innerHTML = c.err ? `<span class="warn">${c.err}</span>` : c.cost == null ? '' : money2(c.cost);
+    });
+    const t = sopTotals(o);
+    $('#sopCost').textContent = money2(t.cost);
+    $('#sopMiss').textContent = t.missing ? `${t.missing} 項未計入` : '';
+    $('#sopProfit').textContent = t.profit == null ? '—' : money2(t.profit);
+    $('#sopProfit').classList.toggle('warn', t.profit != null && t.profit < 0);
+    $('#sopMargin').textContent = t.margin == null ? '' : `毛利率 ${(t.margin * 100).toFixed(1)}%`;
+    const pr = $('#sopPrint');
+    if (pr) pr.innerHTML = sopPrintHtml(o);
+  }
+
+  /** 列印用的表單（仿紙本格式） */
+  function sopPrintHtml(o) {
+    const t = sopTotals(o), rv = o.review;
+    const box = on => (on ? '☑' : '☐');
+    const filled = o.rows.filter(x => x.name.trim() || x.qty);
+    const rows = filled.map((x, k) => { const c = sopRowCalc(x); return `<tr><td>${k + 1}</td><td class="l">${esc(x.name)}</td><td>${esc(x.qty)}</td><td>${esc(x.qty ? x.unit : '')}</td><td class="l">${esc(x.vendor)}</td>
+      <td>${esc(x.specQty)}</td><td>${esc(x.specQty ? x.specUnit : '')}</td><td>${esc(x.price)}</td><td>${c.buy == null ? '' : n2(c.buy)}</td><td>${c.buy == null ? '' : esc(x.unit)}</td>
+      <td>${c.cost == null ? esc(c.err) : n2(c.cost)}</td><td>${esc(x.yieldText)}</td><td>${x.loss !== '' ? esc(x.loss) + '%' : ''}</td></tr>`; });
+    for (let k = filled.length; k < Math.max(12, filled.length); k++) rows.push(`<tr><td>${k + 1}</td>${'<td></td>'.repeat(12)}</tr>`);
+    const steps = o.steps.split('\n').map(x => x.trim()).filter(Boolean);
+    return `<div class="sop-print">
+      <div class="sp-head"><h1>${esc(o.title || 'SOP')}</h1>
+        <table class="sp-review"><tr><th>考核時間</th><td>${esc(rv.date)}</td><td>${box(rv.result === 'pass')} 通過</td></tr>
+          <tr><th>考核人</th><td>${esc(rv.reviewer)}</td><td>${box(rv.result === 'fail')} 不通過</td></tr>
+          <tr><th>被考核人</th><td>${esc(rv.reviewee)}</td><td>補考時間：${esc(rv.retake)}</td></tr></table></div>
+      <table class="sp-table"><thead><tr><th>NO</th><th>食材明細</th><th colspan="2">使用份量<br>(不含損耗)</th><th>廠商/品牌</th><th colspan="2">規格</th><th>進價(未稅)</th>
+        <th colspan="2">採購份量<br>(含損耗)</th><th>成本</th><th>總製成量</th><th>耗損%</th></tr></thead><tbody>${rows.join('')}</tbody></table>
+      <div class="sp-band">操作步驟</div>
+      <ol class="sp-steps">${steps.map(x => `<li>${esc(x)}</li>`).join('') || '<li class="muted">&nbsp;</li>'}</ol>
+      <div class="sp-two"><div><div class="sp-band">照片</div><div class="sp-photo">${o.photo ? `<img src="${o.photo}" alt="">` : ''}</div></div>
+        <div><div class="sp-band">注意事項</div><div class="sp-notes">${escML(o.notes)}</div></div></div>
+      <table class="sp-sum"><tr><th>成本合計</th><th>淨售價</th><th>含稅售價</th><th>毛利</th><th>製成量</th></tr>
+        <tr><td>${n2(t.cost)}</td><td>${t.net == null ? '' : n2(t.net)}</td><td>${t.gross == null ? '' : n2(t.gross)}</td>
+          <td>${t.profit == null ? '' : n2(t.profit) + (t.margin == null ? '' : `（${(t.margin * 100).toFixed(1)}%）`)}</td><td>${esc(o.yieldText)}</td></tr></table>
+    </div>`;
+  }
+
+  // 手機：產生 A4 PDF（太長就分頁）
+  async function buildSopPdf(o) {
+    await Promise.all(PDF_LIBS.map(loadJs));
+    const host = document.createElement('div');
+    host.className = 'pdf-render sop-pdf';
+    host.style.cssText = 'position:fixed;left:-10000px;top:0;width:760px';
+    host.innerHTML = sopPrintHtml(o);
+    document.body.appendChild(host);
+    try {
+      await Promise.all([...host.querySelectorAll('img')].map(im => (im.complete ? 0 : new Promise(r => { im.onload = im.onerror = r; }))));
+      const cv = await window.html2canvas(host.firstElementChild, { scale: 2, backgroundColor: '#ffffff' });
+      const pdf = new window.jspdf.jsPDF({ unit: 'mm', format: 'a4' });
+      const M = 8, W = 210 - M * 2, H = 297 - M * 2, imgH = cv.height * W / cv.width;
+      if (imgH <= H * 1.3) { // 稍微超過一頁：等比縮小放進一頁
+        const k = Math.min(1, H / imgH);
+        pdf.addImage(cv.toDataURL('image/jpeg', 0.92), 'JPEG', M + (W - W * k) / 2, M, W * k, imgH * k);
+      } else {
+        const pagePx = Math.floor(H * cv.width / W);
+        for (let y = 0, first = true; y < cv.height; y += pagePx, first = false) {
+          const part = document.createElement('canvas');
+          part.width = cv.width; part.height = Math.min(pagePx, cv.height - y);
+          part.getContext('2d').drawImage(cv, 0, -y);
+          if (!first) pdf.addPage();
+          pdf.addImage(part.toDataURL('image/jpeg', 0.92), 'JPEG', M, M, W, part.height * W / cv.width);
+        }
+      }
+      return new File([pdf.output('blob')], `${(o.title || 'SOP').replace(/[\\/:*?"<>|]/g, '_')}_${dateStr()}.pdf`, { type: 'application/pdf' });
+    } finally { host.remove(); }
+  }
+
+  function sopTouch(o) { o.updatedAt = Date.now(); persist(); }
+  function sopFillFromPrice(x) {
+    if (x.specQty || x.price) return false;
+    const p = priceMap().get(normName(x.name));
+    if (!p) return false;
+    x.specQty = fmt(p.perQty); x.specUnit = p.perUnit || x.specUnit; x.price = fmt(p.price);
+    return true;
+  }
+  async function sopFromRecipe(o) {
+    if (!db.recipes.length) return toast('還沒有食譜', 'err');
+    const list = [...db.recipes].sort((a, b) => a.name.localeCompare(b.name, 'zh-Hant'));
+    const id = await modal({
+      title: '從食譜帶入',
+      body: `<p>把食譜的食材、步驟、備註帶進這份 SOP（加在現有內容後面）。</p><select id="sopRecipe">${list.map(r => `<option value="${esc(r.id)}">${esc(r.name)}</option>`).join('')}</select>`,
+      buttons: [{ label: '取消', value: null }, { label: '帶入', cls: 'primary', value: m => m.querySelector('#sopRecipe').value }],
+    });
+    const r = id && getRecipe(id);
+    if (!r) return;
+    o.rows = o.rows.filter(x => x.name.trim() || x.qty);
+    for (const i of r.ingredients) {
+      if (isHead(i) || !i.name.trim()) continue;
+      const x = normSopRow({ name: i.name, qty: i.qty == null ? '' : fmt(i.qty), unit: i.unit || '公克', loss: '' });
+      sopFillFromPrice(x);
+      o.rows.push(x);
+    }
+    const st = r.steps.map(x => x.text.trim()).filter(Boolean).join('\n');
+    if (st) o.steps = o.steps.trim() ? o.steps.trim() + '\n' + st : st;
+    if (r.notes.trim()) o.notes = o.notes.trim() ? o.notes.trim() + '\n' + r.notes.trim() : r.notes.trim();
+    if (!o.title.trim()) o.title = r.name;
+    if (!o.photo && r.photo) o.photo = r.photo;
+    sopTouch(o); render(); toast(`已帶入「${r.name}」`);
   }
 
   // ---------------------------------------------------------------- 單價表
@@ -1352,6 +1641,7 @@
       db.pricesUpdatedAt = now;
       for (const r of inc.recipes) { const k = db.recipes.findIndex(x => x.id === r.id); if (k >= 0) db.recipes[k] = r; else db.recipes.push(r); }
       for (const p of inc.prices) { const k = db.prices.findIndex(x => normName(x.name) === normName(p.name)); if (k >= 0) db.prices[k] = p; else db.prices.push(p); }
+      for (const o of inc.sops) { o.updatedAt = now; delete db.deleted[o.id]; const k = db.sops.findIndex(x => x.id === o.id); if (k >= 0) db.sops[k] = o; else db.sops.push(o); }
     }
     persist(true);
     render();
@@ -1481,7 +1771,14 @@
       if (photo) { h = hashStr(photo); photos[h] = photo; }
       return { ...rest, photoHash: h };
     });
-    return { db: { ...shareable(db), recipes }, photos };
+    const sops = db.sops.map(o => {
+      const { photo, ...rest } = o;
+      let h = '';
+      if (photo) { h = hashStr(photo); photos[h] = photo; }
+      const t = sopTotals(o);
+      return { ...rest, photoHash: h, totals: { cost: t.cost, profit: t.profit } };
+    });
+    return { db: { ...shareable(db), recipes, sops }, photos };
   }
 
   async function pushOnce(force) {
@@ -1501,9 +1798,12 @@
     const map = new Map(remote.recipes.map(r => [r.id, r]));
     for (const r of local.recipes) { const o = map.get(r.id); if (!o || (r.updatedAt || 0) >= (o.updatedAt || 0)) map.set(r.id, r); }
     const recipes = [...map.values()].filter(r => !(deleted[r.id] >= (r.updatedAt || 0)));
+    const smap = new Map(remote.sops.map(o => [o.id, o]));
+    for (const o of local.sops) { const x = smap.get(o.id); if (!x || (o.updatedAt || 0) >= (x.updatedAt || 0)) smap.set(o.id, o); }
+    const sops = [...smap.values()].filter(o => !(deleted[o.id] >= (o.updatedAt || 0)));
     const localPrices = local.pricesUpdatedAt >= remote.pricesUpdatedAt;
     return {
-      ...local, recipes, deleted,
+      ...local, recipes, sops, deleted,
       prices: localPrices ? local.prices : remote.prices,
       pricesUpdatedAt: Math.max(local.pricesUpdatedAt, remote.pricesUpdatedAt),
     };
@@ -1511,6 +1811,7 @@
 
   function applyRemote(L, merge) {
     const remote = normalizeDb(L.db);
+    if (!Array.isArray(L.db && L.db.sops)) remote.sops = db.sops; // 舊版後端沒有 SOP：保留本機的
     const sync = { ...db.sync, rev: L.rev, photos: L.photoHashes || db.sync.photos };
     if (merge) { db = mergeDb(db, remote); db.sync = { ...sync, dirty: true }; }
     else db = { ...remote, cloud: db.cloud, sync: { ...sync, dirty: false } };
@@ -1729,6 +2030,42 @@
       case 'cheat-from-recipe': cheatAddRecipe(el.dataset.id, vs(el.dataset.id).mult); persist(); location.hash = '#/cheat'; break;
       case 'cheat-from-plan': db.plan.forEach(p => cheatAddRecipe(p.recipeId, p.mult)); persist(); if (route.name === 'cheat') refreshCheat(); else location.hash = '#/cheat'; break;
       case 'cheat-edit': openCheatEditor(); break;
+      // SOP 主資料
+      case 'sop-new': {
+        const o = normSop({ rows: Array.from({ length: 5 }, () => ({})) });
+        db.sops.push(o); persist(); location.hash = '#/sop/' + encodeURIComponent(o.id);
+        setTimeout(() => { const t = $('[data-sop="title"]'); if (t) t.focus(); }, 50);
+        break;
+      }
+      case 'sop-row-add': {
+        const o = getSop(route.id), last = o.rows[o.rows.length - 1];
+        o.rows.push(normSopRow({ unit: last ? last.unit : '公克', specUnit: last ? last.specUnit : '公克', loss: last ? last.loss : '' }));
+        sopTouch(o); render();
+        const ins = $$('[data-sop-row$=".name"]'); if (ins.length) ins[ins.length - 1].focus();
+        break;
+      }
+      case 'sop-row-rm': { const o = getSop(route.id); o.rows.splice(+el.dataset.k, 1); sopTouch(o); render(); break; }
+      case 'sop-row-mv': {
+        const o = getSop(route.id), k = +el.dataset.k, j = k + +el.dataset.d;
+        if (j >= 0 && j < o.rows.length) { [o.rows[k], o.rows[j]] = [o.rows[j], o.rows[k]]; sopTouch(o); render(); }
+        break;
+      }
+      case 'sop-from-recipe': sopFromRecipe(getSop(route.id)); break;
+      case 'sop-print': { const o = getSop(route.id); if (IS_MOBILE) sharePdf(() => buildSopPdf(o)); else { updateSopCalc(); flush(); window.print(); } break; }
+      case 'sop-dup': {
+        const o = getSop(route.id);
+        const c = normSop({ ...clone(o), id: uid(), title: o.title + '（複本）', rows: o.rows.map(x => ({ ...x, id: uid() })), createdAt: Date.now(), updatedAt: Date.now() });
+        db.sops.push(c); persist(); location.hash = '#/sop/' + encodeURIComponent(c.id); toast('已複製');
+        break;
+      }
+      case 'sop-del': {
+        const o = getSop(route.id);
+        if (!(await confirmBox('刪除 SOP', `確定要刪除「${esc(o.title || '未命名 SOP')}」嗎？此動作無法復原。`, '刪除', true))) break;
+        db.sops = db.sops.filter(x => x.id !== o.id); db.deleted[o.id] = Date.now();
+        persist(true); location.hash = '#/sops'; toast('已刪除');
+        break;
+      }
+      case 'sop-photo-rm': { const o = getSop(route.id); o.photo = ''; sopTouch(o); render(); break; }
       case 'cheat-close': closeCheatEditor(); break;
       case 'cheat-add': {
         const id = $('#cheatAdd').value;
@@ -1811,6 +2148,26 @@
   document.addEventListener('compositionend', e => onInput(e.target));
 
   function onInput(t) {
+    if (t.id === 'sopq') { sopFilter = t.value; updateSopList(); return; }
+    if ((t.dataset.sop || t.dataset.sopRow) && route.name === 'sop') {
+      const o = getSop(route.id);
+      if (!o) return;
+      if (t.dataset.sopRow) { const [k, f] = t.dataset.sopRow.split('.'); if (o.rows[+k]) o.rows[+k][f] = t.value; }
+      else {
+        const f = t.dataset.sop;
+        if (t.type === 'radio') { if (t.checked) o.review.result = t.value; }
+        else if (f.startsWith('review.')) o.review[f.slice(7)] = t.value;
+        else o[f] = t.value;
+        // 淨售價、含稅售價互算（5% 營業稅）
+        if (f === 'net' || f === 'gross') {
+          const v = num(t.value), other = f === 'net' ? 'gross' : 'net';
+          o[other] = v == null ? '' : String(Math.round((f === 'net' ? v * (1 + TAX) : v / (1 + TAX)) * 100) / 100);
+          const oi = $(`[data-sop="${other}"]`); if (oi && oi !== document.activeElement) oi.value = o[other];
+        }
+      }
+      sopTouch(o); updateSopCalc();
+      return;
+    }
     if (t.id === 'q') { listFilter.q = t.value; updateList(); return; }
     if (t.id === 'pq') { priceFilter = t.value; const pos = t.selectionStart; render(); const n = $('#pq'); n.focus(); n.setSelectionRange(pos, pos); return; }
     if (t.id === 'mult') { const m = parseMult(t.value); if (m) setMult(m); return; }
@@ -1857,6 +2214,20 @@
 
   document.addEventListener('change', async e => {
     const t = e.target, act = t.dataset.actChange;
+    if (t.dataset.sopRow && /\.name$/.test(t.dataset.sopRow) && route.name === 'sop') {
+      const o = getSop(route.id), x = o && o.rows[+t.dataset.sopRow.split('.')[0]];
+      if (x && sopFillFromPrice(x)) {
+        const k = t.dataset.sopRow.split('.')[0];
+        for (const f of ['specQty', 'specUnit', 'price']) { const el = $(`[data-sop-row="${k}.${f}"]`); if (el) el.value = x[f]; }
+        sopTouch(o); updateSopCalc(); toast('已從單價表帶入規格與進價');
+      }
+      return;
+    }
+    if (act === 'sop-photo' && t.files[0]) {
+      const o = getSop(route.id);
+      try { o.photo = await resizeImage(t.files[0]); sopTouch(o); render(); } catch (err) { toast(err.message, 'err'); }
+      return;
+    }
     if (t.dataset.cheatOpt) {
       cheatCfg()[t.dataset.cheatOpt] = t.type === 'checkbox' ? t.checked : t.value;
       persist(); updateCheat(); return;

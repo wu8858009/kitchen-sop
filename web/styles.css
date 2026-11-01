@@ -352,6 +352,66 @@ body:has(.dragging) { user-select: none; -webkit-user-select: none; }
 .cm-add { margin-bottom: 0; }
 .cm-add select { flex: 1 1 220px; min-width: 0; }
 
+/* SOP 主資料 */
+.page.sop-page { max-width: 1280px; }
+.sop-top { display: grid; gap: 12px; }
+.sop-title input { font-size: 1.25rem; font-weight: 700; }
+.sop-review { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 10px; }
+.radio-row { display: flex; gap: 14px; align-items: center; min-height: 44px; }
+.sop-table-wrap { overflow-x: auto; margin: 0 -4px 10px; padding: 0 4px; }
+.sop-table { border-collapse: collapse; width: 100%; min-width: 1080px; font-size: .92rem; }
+.sop-table th { font-size: .8rem; color: var(--muted); font-weight: 600; text-align: left; padding: 4px 3px; white-space: nowrap; }
+.sop-table th small { display: block; font-weight: 400; }
+.sop-table td { padding: 3px; border-top: 1px solid var(--line); vertical-align: middle; }
+.sop-table td.no { color: var(--muted); text-align: center; width: 28px; }
+.sop-table input { padding: 6px 7px; min-height: 36px; }
+.sop-table .w-name { min-width: 160px; }
+.sop-table .w-vendor { min-width: 100px; }
+.sop-table .w-num { width: 74px; text-align: right; }
+.sop-table .w-unit { width: 64px; }
+.sop-table .w-yield { width: 80px; }
+.sop-table .w-loss { width: 50px; text-align: right; }
+.sop-table .pct { display: inline-flex; align-items: center; gap: 3px; white-space: nowrap; }
+.sop-table .calc, .sop-sum .calc { background: var(--accent-soft); }
+.sop-table td.calc { text-align: right; white-space: nowrap; font-weight: 600; padding: 3px 8px; min-width: 96px; }
+.sop-table .row-btns { white-space: nowrap; }
+.sop-two { display: grid; grid-template-columns: 1fr 1.6fr; gap: 16px; }
+.sop-sum { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 10px; }
+.sum-cell { display: flex; flex-direction: column; gap: 4px; padding: 10px; border-radius: 10px; border: 1px solid var(--line); font-weight: 600; color: var(--muted); font-size: .88rem; }
+.sum-cell b { font-size: 1.3rem; color: var(--fg); }
+.sum-cell b.warn { color: var(--red); }
+.sum-cell small { font-weight: 400; }
+.sum-cell input { font-size: 1.15rem; font-weight: 700; color: var(--fg); }
+@media (max-width: 719px) {
+  .sop-review { grid-template-columns: 1fr 1fr; }
+  .sop-two, .sop-sum { grid-template-columns: 1fr 1fr; }
+  .sop-two { grid-template-columns: 1fr; }
+}
+
+/* SOP 列印／PDF（仿紙本表單） */
+.sop-print { color: #000; font-size: 10.5pt; }
+.sop-print .sp-head { display: flex; justify-content: space-between; align-items: flex-end; gap: 12px; margin-bottom: 6px; }
+.sop-print h1 { font-size: 16pt; margin: 0; }
+.sop-print table { border-collapse: collapse; }
+.sop-print th, .sop-print td { border: 1px solid #000; padding: 2px 5px; text-align: center; font-weight: 400; }
+.sop-print th { background: #f3f3f3; font-size: 9pt; }
+.sop-print .sp-review th { width: 64px; }
+.sop-print .sp-review td { min-width: 96px; text-align: left; }
+.sop-print .sp-table { width: 100%; }
+.sop-print .sp-table td { height: 20px; }
+.sop-print .sp-table td.l { text-align: left; }
+.sop-print .sp-band { background: #f5b301; text-align: center; font-weight: 700; border: 1px solid #000; border-top: 0; padding: 2px; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+.sop-print .sp-steps { border: 1px solid #000; border-top: 0; margin: 0; padding: 6px 8px 6px 28px; min-height: 120px; }
+.sop-print .sp-two { display: grid; grid-template-columns: 1fr 1.6fr; border: 1px solid #000; border-top: 0; }
+.sop-print .sp-two > div:first-child { border-right: 1px solid #000; }
+.sop-print .sp-two .sp-band { border-left: 0; border-right: 0; }
+.sop-print .sp-photo, .sop-print .sp-notes { min-height: 150px; padding: 6px; text-align: left; }
+.sop-print .sp-photo img { max-width: 100%; max-height: 220px; display: block; margin: 0 auto; }
+.sop-print .sp-sum { width: 100%; border-top: 0; }
+.sop-print .sp-sum td { height: 26px; font-weight: 700; }
+.sop-pdf { font-size: 10px; }
+@media print { .sop-page .print-only { display: block; } @page { size: A4; margin: 10mm; } }
+
 /* 單價表 */
 .price-head, .price-row { display: grid; grid-template-columns: 2fr 1fr .7fr .9fr 1.6fr 38px; gap: 6px; align-items: center; }
 .price-head { font-size: .8rem; color: var(--muted); font-weight: 600; padding-bottom: 6px; }

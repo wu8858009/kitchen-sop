@@ -25,6 +25,8 @@ const SHEETS = {
   ings: { name: "食材", cols: ["食譜id", "食譜名稱", "順序", "分組", "食材", "數量", "單位", "備註", "id", "分組(越)", "食材(越)", "備註(越)"], text: [1, 2, 4, 5, 7, 8, 9, 10, 11, 12] },
   steps: { name: "步驟", cols: ["食譜id", "食譜名稱", "順序", "步驟說明", "計時(分)", "重點", "id", "步驟說明(越)"], text: [1, 2, 4, 6, 7, 8] },
   prices: { name: "單價", cols: ["id", "食材", "價格", "每", "單位"], text: [1, 2, 5] },
+  // SOP 主資料：一份一列，表格內容存在「資料(JSON)」欄，其他欄方便在試算表瀏覽
+  sops: { name: "SOP主資料", cols: ["id", "名稱", "成本合計", "淨售價", "含稅售價", "毛利", "更新時間", "照片", "資料(JSON)"], text: [1, 2, 8, 9] },
   photos: { name: "照片(系統)", cols: ["hash", "片段數"], text: [1] },
   sys: { name: "系統", cols: ["項目", "值"], text: [1, 2] },
 };
@@ -181,10 +183,22 @@ function load_(ss) {
   rows_(ss, "photos").forEach((r) => { if (r[0] !== "") photos[str_(r[0])] = r.slice(2, 2 + (Number(r[1]) || 0)).join(""); });
   recipes.forEach((r) => { r.photo = photos[r.photoHash] || ""; delete r.photoHash; });
 
+  const sops = rows_(ss, "sops").filter((r) => r[0] !== "").map((r) => {
+    const o = json_(str_(r[8]), {});
+    o.id = str_(r[0]);
+    // 名稱、售價可以直接在試算表修改
+    if (r[1] !== "") o.title = str_(r[1]);
+    if (r[3] !== "") o.net = num_(r[3]);
+    if (r[4] !== "") o.gross = num_(r[4]);
+    o.updatedAt = num_(r[6]) || o.updatedAt || 0;
+    o.photo = photos[str_(r[7])] || "";
+    return o;
+  });
+
   return {
     ok: true, rev: Number(sys.rev) || 0, photoHashes: Object.keys(photos),
     db: {
-      version: 1, recipes: recipes, prices: prices,
+      version: 1, recipes: recipes, prices: prices, sops: sops,
       plan: json_(sys.plan, []), settings: json_(sys.settings, {}), deleted: json_(sys.deleted, {}),
       pricesUpdatedAt: Number(sys.pricesUpdatedAt) || 0,
     },
@@ -203,6 +217,9 @@ function save_(ss, req) {
 
     const d = req.db || {};
     const recipes = Array.isArray(d.recipes) ? d.recipes : [];
+    // 舊版 App 不會送 sops：這時保留試算表裡原本的 SOP（含照片），不要清空
+    const hasSops = Array.isArray(d.sops);
+    const sops = hasSops ? d.sops : [];
     const incoming = req.photos || {};
 
     // 照片：只上傳新的，以 hash 對應
@@ -212,7 +229,8 @@ function save_(ss, req) {
     phRows.forEach((r, i) => { if (r[0] !== "") have[str_(r[0])] = i + 2; });
     const used = {};
     const need = [];
-    recipes.forEach((r) => {
+    if (!hasSops) rows_(ss, "sops").forEach((r) => { if (r[0] !== "" && r[7] !== "") used[str_(r[7])] = true; });
+    recipes.concat(sops).forEach((r) => {
       if (!r.photoHash) return;
       used[r.photoHash] = true;
       if (!have[r.photoHash] && !incoming[r.photoHash] && need.indexOf(r.photoHash) < 0) need.push(r.photoHash);
@@ -231,6 +249,15 @@ function save_(ss, req) {
     writeRows_(ss, "ings", ingRows);
     writeRows_(ss, "steps", stepRows);
     writeRows_(ss, "prices", priceRows);
+    if (hasSops) {
+      writeRows_(ss, "sops", sops.map((o) => {
+        const rest = {};
+        Object.keys(o).forEach((k) => { if (k !== "photoHash" && k !== "photo") rest[k] = o[k]; });
+        const t = o.totals || {};
+        return [str_(o.id), str_(o.title), t.cost == null ? "" : Number(t.cost), o.net == null ? "" : Number(o.net), o.gross == null ? "" : Number(o.gross),
+          t.profit == null ? "" : Number(t.profit), date_(o.updatedAt), str_(o.photoHash), JSON.stringify(rest)];
+      }));
+    }
 
     Object.keys(incoming).forEach((h) => {
       if (!used[h] || have[h]) return;
@@ -285,7 +312,11 @@ function onEdit(e) {
     if (!key || key === "sys" || key === "photos") return;
     const sys = sysGet_(ss);
     if (key === "prices") sys.pricesUpdatedAt = String(Date.now());
-    else {
+    else if (key === "sops") {
+      // 手動改了 SOP 列：更新該列的更新時間，各裝置同步時以試算表為準
+      const r0 = Math.max(2, e.range.getRow()), n = e.range.getRow() + e.range.getNumRows() - r0;
+      if (n > 0) sh.getRange(r0, 7, n, 1).setValues(Array.from({ length: n }, () => [new Date()]));
+    } else {
       const r0 = Math.max(2, e.range.getRow());
       const n = e.range.getRow() + e.range.getNumRows() - r0;
       if (n > 0) {
