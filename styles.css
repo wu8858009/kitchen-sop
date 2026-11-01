@@ -412,6 +412,15 @@ body:has(.dragging) { user-select: none; -webkit-user-select: none; }
 .sop-pdf { font-size: 10px; }
 @media print { .sop-page .print-only { display: block; } @page { size: A4; margin: 10mm; } }
 
+/* 照片辨識結果 */
+.modal.ocr-modal { width: min(1100px, 100%); }
+.ocr-grid { display: grid; grid-template-columns: 1fr 1.4fr; gap: 12px; align-items: start; }
+.ocr-grid textarea { font-family: ui-monospace, Consolas, monospace; font-size: .85rem; min-height: 320px; }
+.ocr-table { border-collapse: collapse; width: 100%; font-size: .85rem; }
+.ocr-table th, .ocr-table td { border: 1px solid var(--line); padding: 3px 6px; text-align: center; }
+.ocr-table td.l { text-align: left; }
+@media (max-width: 719px) { .ocr-grid { grid-template-columns: 1fr; } .ocr-grid textarea { min-height: 180px; } }
+
 /* 單價表 */
 .price-head, .price-row { display: grid; grid-template-columns: 2fr 1fr .7fr .9fr 1.6fr 38px; gap: 6px; align-items: center; }
 .price-head { font-size: .8rem; color: var(--muted); font-weight: 600; padding-bottom: 6px; }
