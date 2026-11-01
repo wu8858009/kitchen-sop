@@ -325,6 +325,11 @@ body:has(.dragging) { user-select: none; -webkit-user-select: none; }
 .pdf-render .cheat-card header { border-bottom-color: #000; }
 .pdf-render.fs-s { font-size: 12px; } .pdf-render.fs-m { font-size: 14.5px; } .pdf-render.fs-l { font-size: 18.5px; }
 
+/* 食材小標題（只填名稱的列） */
+.ing-table tr.grp.sub td { color: var(--fg); font-weight: 700; border-bottom: 2px solid var(--line); }
+.cc-grp.cc-sub { color: var(--fg); font-size: .95em; border-bottom: 1.5px solid var(--fg); padding-bottom: 1px; }
+.ed-row.ing.is-head .n { font-weight: 700; color: var(--accent); border-color: var(--accent); }
+
 /* 單價表 */
 .price-head, .price-row { display: grid; grid-template-columns: 2fr 1fr .7fr .9fr 1.6fr 38px; gap: 6px; align-items: center; }
 .price-head { font-size: .8rem; color: var(--muted); font-weight: 600; padding-bottom: 6px; }
