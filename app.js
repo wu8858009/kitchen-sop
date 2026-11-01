@@ -2,7 +2,7 @@
 (() => {
   'use strict';
   const U = window.KUnits;
-  const APP_VERSION = '2.1.1';
+  const APP_VERSION = '2.2.0';
   const IS_DESKTOP = /[?&]desktop=1\b/.test(location.search);
 
   const $ = (s, el = document) => el.querySelector(s);
@@ -350,7 +350,7 @@
         else if (e.target.classList.contains('modal-back')) close(null);
       };
       m.onkeydown = e => {
-        if (e.key === 'Escape') close(null);
+        if (e.key === 'Escape') { e.preventDefault(); close(null); }
         // 輸入法選字時按的 Enter 不算「確定」
         else if (e.key === 'Enter' && e.target.tagName === 'INPUT' && !e.isComposing && e.keyCode !== 229) { const i = buttons.findIndex(b => /primary|danger/.test(b.cls || '')); if (i >= 0) { e.preventDefault(); pick(i); } }
       };
@@ -1021,7 +1021,8 @@
       </div></div>`;
     m.classList.add('open');
     $('#cheatItems').innerHTML = cheatItemsHtml();
-    m.onkeydown = e => { if (e.key === 'Escape') closeCheatEditor(); };
+    m.onkeydown = e => { if (e.key === 'Escape') { e.preventDefault(); closeCheatEditor(); } };
+    const ed = $('#cheatEditor'); ed.tabIndex = -1; ed.focus(); // 讓 Esc 能關閉視窗
   }
   function closeCheatEditor() {
     const m = $('#modal');
@@ -1641,6 +1642,131 @@
     sopTouch(o); render(); toast(`已帶入「${r.name}」`);
   }
 
+
+  // ---------------------------------------------------------------- 快捷鍵
+  // 多數快捷鍵直接「按」畫面上對應的按鈕，行為和用滑鼠點完全一樣。
+  // 避開瀏覽器保留的鍵（Ctrl+N/T/W、Alt+F/E/D）；輸入法選字中不觸發。
+  const clickEl = sel => { const el = $(sel); if (!el || el.disabled) return false; el.click(); return true; };
+  const clickAct = act => clickEl(`#app [data-act="${act}"], #modal [data-act="${act}"]`);
+  const go = h => { location.hash = h; return true; };
+  function focusSearch() {
+    const el = $('#q') || $('#pq') || $('#sopq');
+    if (!el) { go('#/'); setTimeout(() => { const q = $('#q'); if (q) q.focus(); }, 50); return true; }
+    el.focus(); el.select(); return true;
+  }
+  function stepMult(d) {
+    if (route.name !== 'r') return false;
+    const vals = MULT_CHIPS.map(c => c[0]), cur = vs(route.id).mult;
+    let k = vals.findIndex(v => v >= cur - 1e-9);
+    if (k < 0) k = vals.length - 1;
+    if (d > 0) k = vals[k] > cur + 1e-9 ? k : Math.min(vals.length - 1, k + 1);
+    else k = Math.max(0, (vals[k] < cur - 1e-9 ? k : k - 1));
+    setMult(vals[k]);
+    const mi = $('#mult'); if (mi) mi.value = multText(vs(route.id).mult);
+    toast(`倍數 × ${multText(vs(route.id).mult)}`);
+    return true;
+  }
+  function printPage() {
+    if (route.name === 'cheat') return clickAct('cheat-print');
+    if (route.name === 'sop') return clickAct('sop-print');
+    if (/^(r|plan)$/.test(route.name)) { flush(); window.print(); return true; }
+    return false;
+  }
+  function saveOrSync() {
+    if (route.name === 'edit' || route.name === 'new') return clickAct('save-recipe');
+    flush();
+    if (db.cloud) { cloudSync(); toast('已儲存，正在同步'); } else toast('已儲存');
+    return true;
+  }
+  function newItem() {
+    switch (route.name) {
+      case 'sops': case 'sop': return clickEl('#app [data-act="sop-new"]') || (go('#/sops'), setTimeout(() => clickAct('sop-new'), 50), true);
+      case 'prices': return clickAct('price-add');
+      case 'plan': { const s2 = $('#planAdd'); if (s2) { s2.focus(); return true; } return false; }
+      case 'cheat': return clickAct('cheat-edit');
+      case 'edit': case 'new': return clickAct('add');
+      default: return go('#/new');
+    }
+  }
+
+  // [按鍵, 說明, 適用頁面（空白＝全部）, 動作]
+  const SHORTCUTS = [
+    ['Alt+1', '切到「食譜」', '', () => go('#/')],
+    ['Alt+2', '切到「SOP」', '', () => go('#/sops')],
+    ['Alt+3', '切到「備料單」', '', () => go('#/plan')],
+    ['Alt+4', '切到「小抄」', '', () => go('#/cheat')],
+    ['Alt+5', '切到「單價表」', '', () => go('#/prices')],
+    ['Alt+6', '切到「設定」', '', () => go('#/settings')],
+    ['Ctrl+F', '搜尋（食譜／SOP／單價表）', '', focusSearch],
+    ['/', '搜尋（不在輸入框時）', '', focusSearch],
+    ['Alt+N', '新增（依頁面：食譜、SOP、單價、備料單菜色、小抄卡片、編輯中的食材）', '', newItem],
+    ['Ctrl+S', '儲存（編輯食譜時）／立即同步', '', saveOrSync],
+    ['Ctrl+P', '列印（食譜、備料單、小抄、SOP）', '', printPage],
+    ['Esc', '關閉視窗／取消編輯', '', () => (route.name === 'edit' || route.name === 'new' ? clickAct('cancel-edit') : false)],
+    ['F1', '顯示快捷鍵說明', '', () => (showShortcuts(), true)],
+    ['?', '顯示快捷鍵說明（不在輸入框時）', '', () => (showShortcuts(), true)],
+    // 食譜頁
+    ['Ctrl+E', '編輯這道食譜', 'r', () => clickEl(`#app a[href="#/edit/${encodeURIComponent(route.id)}"]`)],
+    ['Ctrl+D', '複製', 'r', () => clickAct('dup')],
+    ['Alt+P', '加入備料單', 'r', () => clickAct('addplan')],
+    ['Alt+C', '加到小抄', 'r', () => clickAct('cheat-from-recipe')],
+    ['Alt+M', '輸入倍數', 'r', () => { const m = $('#mult'); if (m) { m.focus(); m.select(); } return !!m; }],
+    ['+', '倍數加一級（不在輸入框時）', 'r', () => stepMult(1)],
+    ['-', '倍數減一級（不在輸入框時）', 'r', () => stepMult(-1)],
+    ['Alt+U', '清除勾選', 'r', () => clickAct('uncheck')],
+    ['Alt+W', '螢幕恆亮（手機）', 'r', () => clickAct('wake')],
+    // 編輯食譜
+    ['Ctrl+Enter', '儲存食譜', 'edit', () => clickAct('save-recipe')],
+    ['Alt+I', '新增食材', 'edit', () => clickEl('#app [data-act="add"][data-list="ingredients"]')],
+    ['Alt+H', '新增小標題', 'edit', () => clickAct('add-head')],
+    ['Alt+T', '新增步驟', 'edit', () => clickEl('#app [data-act="add"][data-list="steps"]')],
+    ['Alt+B', '批次貼上食材', 'edit', () => clickEl('#app [data-act="bulk"][data-list="ingredients"]')],
+    ['Alt+V', '翻譯越南文', 'edit', () => clickAct('tr-draft')],
+    // SOP
+    ['Alt+R', '新增食材列', 'sop', () => clickAct('sop-row-add')],
+    ['Alt+O', '照片辨識', 'sop', () => clickEl('#app [data-act-change="sop-ocr"]')],
+    ['Alt+L', '從食譜帶入', 'sop', () => clickAct('sop-from-recipe')],
+    ['Ctrl+D', '複製 SOP', 'sop', () => clickAct('sop-dup')],
+    ['Alt+O', '從照片建立 SOP', 'sops', () => clickEl('#app [data-act-change="sop-ocr-new"]')],
+    // 備料單、小抄、單價表、設定
+    ['Alt+C', '做成小抄', 'plan', () => clickAct('cheat-from-plan')],
+    ['Alt+K', '編輯小抄卡片', 'cheat', () => clickAct('cheat-edit')],
+    ['Alt+I', '從食譜帶入食材', 'prices', () => clickAct('price-import')],
+    ['Alt+X', '匯出備份', 'settings', () => clickAct('export')],
+  ];
+  const PAGE_NAMES = { '': '全部頁面', r: '食譜頁', edit: '編輯食譜', sop: 'SOP 表單', sops: 'SOP 列表', plan: '備料單', cheat: '小抄', prices: '單價表', settings: '設定' };
+
+  function keyName(e) {
+    const k = e.key === ' ' ? 'Space' : e.key.length === 1 ? e.key.toUpperCase() : e.key;
+    if (k === 'Escape') return 'Esc';
+    const plain = ['/', '?', '+', '-', '='].includes(e.key);
+    if (plain && !e.ctrlKey && !e.metaKey && !e.altKey) return e.key === '=' ? '+' : e.key;
+    // Alt＋數字用實體鍵位，避免輸入法或鍵盤配置影響
+    const code = /^Digit(\d)$/.exec(e.code || '');
+    const base = code && e.altKey ? code[1] : /^Key([A-Z])$/.test(e.code || '') ? e.code.slice(3) : k;
+    return (e.ctrlKey || e.metaKey ? 'Ctrl+' : '') + (e.altKey ? 'Alt+' : '') + (e.shiftKey && base.length > 1 ? 'Shift+' : '') + base;
+  }
+  document.addEventListener('keydown', e => {
+    if (e.defaultPrevented || e.isComposing || e.keyCode === 229 || e.repeat && !/^[+-]$/.test(e.key)) return; // 對話框已處理過的鍵不再觸發
+    const name = keyName(e);
+    const typing = /^(INPUT|TEXTAREA|SELECT)$/.test((e.target || {}).tagName || '') || (e.target && e.target.isContentEditable);
+    if (typing && !/^(Ctrl|Alt|F\d|Esc)/.test(name)) return;   // 打字時只認組合鍵
+    if ($('#modal.open')) return;                                // 對話框開著：交給對話框（Esc、Enter）
+    const page = route.name === 'new' ? 'edit' : route.name === 'list' ? 'list' : route.name;
+    const hit = SHORTCUTS.find(([k, , pg]) => k === name && pg === page) || SHORTCUTS.find(([k, , pg]) => k === name && !pg);
+    if (!hit) return;
+    if (hit[3]() !== false) e.preventDefault();
+  });
+
+  function showShortcuts() {
+    const groups = {};
+    for (const [k, d, pg] of SHORTCUTS) (groups[pg] = groups[pg] || []).push([k, d]);
+    const body = Object.entries(groups).map(([pg, list]) => `<h4 class="kbd-h">${PAGE_NAMES[pg] || pg}</h4>
+      <table class="kbd-table">${list.map(([k, d]) => `<tr><td>${k.split('+').map(x => `<kbd>${esc(x)}</kbd>`).join('+')}</td><td>${esc(d)}</td></tr>`).join('')}</table>`).join('');
+    modal({ title: '⌨ 快捷鍵', body: `<div class="kbd-list">${body}</div><p class="hint">Mac 用 ⌘ 代替 Ctrl。正在打字時只有組合鍵（Ctrl／Alt）有效；注音選字時不會觸發。</p>`, buttons: [{ label: '關閉', cls: 'primary', value: null }] });
+    const md = $('#modal .modal'); if (md) md.classList.add('kbd-modal');
+  }
+
   // ---------------------------------------------------------------- 單價表
   let priceFilter = '';
   function unitPriceText(p) {
@@ -1678,7 +1804,8 @@
   // ---------------------------------------------------------------- 設定 / 資料
   function viewSettings() {
     return `<div class="page">
-      <h1 class="head-title">設定與資料</h1>
+      <div class="page-head"><h1 class="head-title">設定與資料</h1><div class="spacer"></div>
+        ${IS_MOBILE ? '' : '<button class="btn" data-act="kbd-help">⌨ 快捷鍵（F1）</button>'}</div>
       ${viewRingSettings()}
       <section class="card">
         <h2>單位顯示</h2>
@@ -2182,6 +2309,7 @@
       case 'cheat-from-recipe': cheatAddRecipe(el.dataset.id, vs(el.dataset.id).mult); persist(); location.hash = '#/cheat'; break;
       case 'cheat-from-plan': db.plan.forEach(p => cheatAddRecipe(p.recipeId, p.mult)); persist(); if (route.name === 'cheat') refreshCheat(); else location.hash = '#/cheat'; break;
       case 'cheat-edit': openCheatEditor(); break;
+      case 'kbd-help': showShortcuts(); break;
       // SOP 主資料
       case 'sop-new': {
         const o = normSop({ rows: Array.from({ length: 5 }, () => ({})) });
