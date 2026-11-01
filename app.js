@@ -2,7 +2,7 @@
 (() => {
   'use strict';
   const U = window.KUnits;
-  const APP_VERSION = '2.3.0';
+  const APP_VERSION = '2.4.0';
   const IS_DESKTOP = /[?&]desktop=1\b/.test(location.search);
 
   const $ = (s, el = document) => el.querySelector(s);
@@ -1480,7 +1480,7 @@
     while (i < tk.length && !ocrNum(tk[i])) name.push(tk[i++]);
     const nm = name.join(' ').trim();
     if (!nm || i >= tk.length || !/[\u3400-\u9fffA-Za-z]/.test(nm) || OCR_HEAD_RE.test(nm)) return null;
-    const row = { name: nm, qty: tk[i++].replace(/,/g, ''), unit: '', vendor: '', specQty: '', specUnit: '', price: '', loss: '' };
+    const row = { name: nm, qty: tk[i++].replace(/,/g, ''), unit: '', vendor: '', specQty: '', specUnit: '', price: '', loss: '', buy: '' };
     if (OCR_UNIT_RE.test(tk[i] || '')) row.unit = tk[i++];
     const vendor = [];
     while (i < tk.length && !ocrNum(tk[i]) && !/%$/.test(tk[i])) vendor.push(tk[i++]);
@@ -1491,6 +1491,7 @@
       if (/^\d+(\.\d+)?%$/.test(t)) { row.loss = t.slice(0, -1); continue; }
       if (!ocrNum(t)) continue;
       const u = OCR_UNIT_RE.test(tk[j + 1] || '') ? tk[++j] : '';
+      if (u && /\.\d\d$/.test(t)) { row.buy = t.replace(/,/g, ''); continue; }   // 採購份量：拿來核對
       if (u && !row.specQty) { row.specQty = t.replace(/,/g, ''); row.specUnit = u; }
       else if (!u && !row.price && !row.specQty) row.price = t.replace(/,/g, '');
       else if (!u && !row.price && row.specQty && !/\.\d\d$/.test(t)) row.price = t.replace(/,/g, '');
@@ -1508,7 +1509,7 @@
         .replace(new RegExp('(\\d)\\s*(' + OCR_UNITS + ')(?![A-Za-z])', 'gi'), '$1 $2 ');
       str.split(/\s+/).filter(Boolean).forEach(t => toks.push({ t, ln }));
     });
-    const items = [], vendors = [], specs = [], prices = [], losses = [];
+    const items = [], vendors = [], specs = [], prices = [], losses = [], buys = [];
     const isUnit = t => OCR_UNIT_RE.test(t || '');
     let cur = null, afterUnit = false, loneUnit = '', nameLine = -1;
     for (let i = 0; i < toks.length; i++) {
@@ -1519,7 +1520,7 @@
         if (isUnit(next)) {
           i++;
           afterUnit = true; loneUnit = '';
-          if (/\.\d\d$/.test(n)) continue;                  // 採購份量（自動算）
+          if (/\.\d\d$/.test(n)) { buys.push(n); continue; } // 採購份量：拿來核對
           if (cur && !cur.qty) { cur.qty = n; cur.unit = next; } else specs.push([n, next]);
           continue;
         }
@@ -1539,7 +1540,7 @@
     return items.filter(it => it.qty).map((it, k) => {
       const sp = specs[k] || [];
       const unit = fixUnit(it.unit || sp[1] || '公克');
-      return { name: it.name, qty: it.qty, unit, vendor: vendors[k] || '', specQty: sp[0] || '', specUnit: fixUnit(sp[1] || unit), price: prices[k] || '', loss: losses[k] || '' };
+      return { name: it.name, qty: it.qty, unit, vendor: vendors[k] || '', specQty: sp[0] || '', specUnit: fixUnit(sp[1] || unit), price: prices[k] || '', loss: losses[k] || '', buy: buys[k] || '' };
     });
   }
 
@@ -1566,47 +1567,163 @@
     return out;
   }
 
-  function ocrPreviewHtml(p) {
-    const rows = p.rows.map((x, k) => `<tr><td>${k + 1}</td><td class="l">${esc(x.name)}</td><td>${esc(x.qty)} ${esc(x.unit)}</td><td class="l">${esc(x.vendor)}</td>
-      <td>${x.specQty ? esc(x.specQty + ' ' + x.specUnit) : ''}</td><td>${esc(x.price)}</td><td>${x.loss ? esc(x.loss) + '%' : ''}</td></tr>`).join('');
-    return `<p><b>品項名稱：</b>${esc(p.title) || '<span class="muted">（沒讀到，保留原本的）</span>'}</p>
-      <div class="sop-table-wrap"><table class="ocr-table"><thead><tr><th>NO</th><th>食材明細</th><th>使用份量</th><th>廠商/品牌</th><th>規格</th><th>進價</th><th>耗損</th></tr></thead>
-      <tbody>${rows || '<tr><td colspan="7" class="muted">沒有辨識出食材列。可以在左邊把每項食材整理成一行，例如「丹麥皇冠牌梅花豬 180 公克 大山聯合 1000 公克 10%」。</td></tr>'}</tbody></table></div>
-      ${p.steps.length ? `<p><b>操作步驟：</b>${p.steps.length} 行</p>` : ''}${p.notes.length ? `<p><b>注意事項：</b>${p.notes.length} 行</p>` : ''}`;
+  // ---- 自動檢查：用紙本的「採購份量」反算核對、品名／廠商對照既有資料校正錯字、可疑的格子標紅
+  const ocrNorm = t => ocrHalf(t || '').replace(/[\s()（）\-－_.·,，]/g, '').toLowerCase();
+  function lev(a, b) {
+    const d = Array.from({ length: b.length + 1 }, (_, j) => j);
+    for (let i = 1; i <= a.length; i++) {
+      let prev = d[0]; d[0] = i;
+      for (let j = 1; j <= b.length; j++) { const t = d[j]; d[j] = Math.min(d[j] + 1, d[j - 1] + 1, prev + (a[i - 1] === b[j - 1] ? 0 : 1)); prev = t; }
+    }
+    return d[b.length];
+  }
+  function bestMatch(text, list) {
+    const n = ocrNorm(text);
+    if (n.length < 2) return null;
+    let best = null, bs = 0;
+    for (const c of list) {
+      const m = ocrNorm(c);
+      if (!m) continue;
+      if (m === n) return { v: c, exact: true };
+      const sim = 1 - lev(n, m) / Math.max(n.length, m.length);
+      if (sim > bs) { bs = sim; best = c; }
+    }
+    return best && bs >= 0.75 && Math.abs(ocrNorm(best).length - n.length) <= 2 ? { v: best, sim: bs } : null;
+  }
+  function ocrKnown(exceptId) {
+    const names = new Set(), vendors = new Set();
+    db.prices.forEach(x => x.name.trim() && names.add(x.name.trim()));
+    db.recipes.forEach(r => r.ingredients.forEach(i => !isHead(i) && i.name.trim() && names.add(i.name.trim())));
+    db.sops.forEach(o => o.id !== exceptId && o.rows.forEach(x => { if (x.name.trim()) names.add(x.name.trim()); if (x.vendor.trim()) vendors.add(x.vendor.trim()); }));
+    return { names: [...names], vendors: [...vendors] };
+  }
+  const round2 = v => Math.round(v * 100) / 100;
+
+  /** 檢查一列：fuzzy=true 時才做錯字校正（使用者自己改過的就不再動） */
+  function ocrCheckRow(r, known, fuzzy, others) {
+    r.notes = []; r.bad = []; r.status = '';
+    if (fuzzy) {
+      r.orig = { name: r.name, vendor: r.vendor };
+      const mn = bestMatch(r.name, known.names);
+      if (mn && !mn.exact) { r.name = mn.v; r.notes.push(`品名已對照既有資料校正（原：${r.orig.name}）`); r.fixed = true; }
+      const mv = r.vendor && bestMatch(r.vendor, known.vendors);
+      if (mv && !mv.exact) { r.vendor = mv.v; r.notes.push(`廠商已校正（原：${r.orig.vendor}）`); r.fixed = true; }
+    }
+    const open = (r.name.match(/[(（]/g) || []).length, close = (r.name.match(/[)）]/g) || []).length;
+    if (open !== close) { r.bad.push('name'); r.notes.push('品名括號不完整，可能被截斷'); }
+    if (!r.name.trim()) r.bad.push('name');
+    const q = sopNum(r.qty), lossNum = r.loss === '' ? null : sopNum(r.loss), buy = sopNum(r.buy);
+    if (r.qty !== '' && q == null) { r.bad.push('qty'); r.notes.push('使用份量不是數字'); }
+    if (r.loss !== '' && lossNum == null) { r.bad.push('loss'); r.notes.push('耗損不是數字'); }
+    if (q != null && lossNum == null && buy) {
+      const l = round2((1 - q / buy) * 100);
+      if (l >= 0 && l < 90) { r.loss = String(l); r.notes.push(`耗損由紙本採購份量 ${buy} 推算`); r.status = 'ok'; }
+    } else if (q == null && lossNum != null && buy) {
+      r.qty = String(round2(buy * (1 - lossNum / 100))); r.notes.push(`使用份量由紙本採購份量 ${buy} 推算，請確認`); r.status = 'warn'; r.bad.push('qty');
+    } else if (q != null && lossNum != null && buy) {
+      const exp = q / (1 - lossNum / 100);
+      if (Math.abs(exp - buy) <= 0.02) { r.status = 'ok'; r.notes.push(`和紙本採購份量 ${buy} 核對相符`); }
+      else { r.status = 'warn'; r.bad.push('qty', 'loss'); r.notes.push(`紙本採購份量 ${buy}，但 ${q}÷(1−${lossNum}%) = ${round2(exp)}，份量或耗損可能讀錯`); }
+    } else if (q != null && !buy) r.notes.push('紙本沒有採購份量可核對');
+    if (others.vendor && !r.vendor.trim()) { r.bad.push('vendor'); r.notes.push('廠商沒讀到'); }
+    if (others.spec && !r.specQty) { r.bad.push('specQty'); r.notes.push('規格沒讀到'); }
+    if (r.specQty && sopNum(r.specQty) == null) r.bad.push('specQty');
+    if (r.price && sopNum(r.price) == null) r.bad.push('price');
+    if (r.bad.length && r.status !== 'warn') r.status = 'warn';
+    return r;
+  }
+  function ocrCheck(p, exceptId) {
+    const known = ocrKnown(exceptId);
+    const others = { vendor: p.rows.filter(x => x.vendor).length > p.rows.length / 2, spec: p.rows.filter(x => x.specQty).length > p.rows.length / 2 };
+    p.rows.forEach(r => ocrCheckRow(r, known, true, others));
+    p.known = known; p.others = others;
+    return p;
+  }
+
+  function ocrRowHtml(x, k) {
+    const cell = (f, cls = '', extra = '') => `<td><input class="${cls} ${x.bad.includes(f) ? 'bad' : ''}" data-ocr="${k}.${f}" value="${esc(x[f] || '')}" ${extra}></td>`;
+    const icon = x.status === 'ok' ? '<span class="ok">✓</span>' : x.status === 'warn' ? '<span class="warn">⚠</span>' : '<span class="muted">–</span>';
+    return `<tr id="ocrR${k}" class="${x.status}">
+      <td class="no">${k + 1}</td>${cell('name', 'w-name')}${cell('qty', 'w-num', 'inputmode="decimal"')}${cell('unit', 'w-unit')}${cell('vendor', 'w-vendor')}
+      ${cell('specQty', 'w-num', 'inputmode="decimal"')}${cell('specUnit', 'w-unit')}${cell('price', 'w-num', 'inputmode="decimal"')}${cell('loss', 'w-loss', 'inputmode="decimal"')}
+      <td class="ocr-st">${icon}<div class="small">${x.notes.map(esc).join('<br>')}</div>${x.fixed ? `<button class="btn sm" data-ocr-undo="${k}">↩ 還原</button>` : ''}</td>
+      <td><button class="icon danger" data-ocr-rm="${k}" title="不要這一列">✕</button></td></tr>`;
+  }
+  function ocrTableHtml(p) {
+    const ok = p.rows.filter(x => x.status === 'ok').length, warn = p.rows.filter(x => x.status === 'warn').length;
+    return `<div class="ocr-sum">${p.rows.length} 項食材：<span class="ok">✓ 已核對 ${ok}</span>　<span class="warn">⚠ 需確認 ${warn}</span>　<span class="muted">– 無法核對 ${p.rows.length - ok - warn}</span></div>
+      <div class="sop-table-wrap"><table class="ocr-table"><thead><tr><th>NO</th><th>食材明細</th><th>使用份量</th><th>單位</th><th>廠商/品牌</th><th>規格</th><th>單位</th><th>進價</th><th>耗損%</th><th>檢查</th><th></th></tr></thead>
+      <tbody>${p.rows.map(ocrRowHtml).join('') || '<tr><td colspan="11" class="muted">沒有辨識出食材列。可以展開下方原始文字，把每項食材整理成一行再按「重新判讀」。</td></tr>'}</tbody></table></div>`;
   }
 
   async function sopOcr(o, file) {
     if (!db.cloud) return toast('照片辨識需要先在「設定」連線 Google 雲端', 'err');
     toast('照片辨識中…（約 10～30 秒）');
-    let text;
+    let text, img;
     try {
-      const img = await resizeImage(file, 2400);
+      img = await resizeImage(file, 2400);
       const j = await cloudCall({ a: 'ocr', image: img.split(',')[1], mime: 'image/jpeg' });
       text = j.text || '';
     } catch (e) { return toast('照片辨識失敗：' + e.message, 'err'); }
     if (!text.trim()) return toast('照片裡沒有辨識出文字，請拍清楚一點再試', 'err');
-    let parsed = parseOcrText(text);
+    let parsed = ocrCheck(parseOcrText(text), o.id);
     const pending = modal({
-      title: '照片辨識結果',
-      body: `<p class="hint">左邊是辨識出的文字，可以直接修改（一行一項食材）；右邊即時顯示會填入的內容。確認後按「填入」，食材會加在現有食材後面。</p>
-        <div class="ocr-grid"><textarea id="ocrText" rows="18" spellcheck="false">${esc(text)}</textarea><div id="ocrPrev">${ocrPreviewHtml(parsed)}</div></div>`,
+      title: '照片辨識結果（請對照照片確認）',
+      body: `<div class="ocr-layout">
+          <div class="ocr-photo" title="點一下放大／縮小"><img src="${img}" alt="原始照片"></div>
+          <div class="ocr-main">
+            <p class="hint">✓ 表示已用紙本的「採購份量」反算核對相符；⚠ 和紅框是需要確認的格子。可以直接在表格裡修改，品名、廠商會先對照單價表、食譜和其他 SOP 自動校正錯字。</p>
+            <label class="fld">品項名稱<input id="ocrTitle" value="${esc(parsed.title)}" placeholder="（沒讀到，保留原本的）"></label>
+            <div id="ocrTable">${ocrTableHtml(parsed)}</div>
+            ${parsed.steps.length || parsed.notes.length ? `<p class="small muted">另外讀到操作步驟 ${parsed.steps.length} 行、注意事項 ${parsed.notes.length} 行，會一起填入。</p>` : ''}
+            <details class="ocr-raw"><summary>辨識出的原始文字</summary>
+              <textarea id="ocrText" rows="12" spellcheck="false">${esc(text)}</textarea>
+              <button class="btn sm" id="ocrReparse">重新判讀（會取代上面表格）</button></details>
+          </div></div>`,
       buttons: [{ label: '取消', value: null }, { label: '填入', cls: 'primary', value: () => parsed }],
     });
-    const md = $('#modal .modal'); if (md) md.classList.add('ocr-modal');
-    const ta = $('#ocrText');
-    if (ta) ta.addEventListener('input', () => { parsed = parseOcrText(ta.value); $('#ocrPrev').innerHTML = ocrPreviewHtml(parsed); });
+    const md = $('#modal .modal');
+    if (md) {
+      md.classList.add('ocr-modal');
+      const redraw = () => { $('#ocrTable').innerHTML = ocrTableHtml(parsed); };
+      md.addEventListener('input', e => {
+        const t = e.target;
+        if (t.id === 'ocrTitle') { parsed.title = t.value; return; }
+        if (!t.dataset.ocr) return;
+        const [k, f] = t.dataset.ocr.split('.'), r = parsed.rows[+k];
+        r[f] = t.value;
+        ocrCheckRow(r, parsed.known, false, parsed.others);    // 只重新核對，不再改使用者打的字
+        const tr = $('#ocrR' + k), st = tr && tr.querySelector('.ocr-st');
+        if (tr) { tr.className = r.status; tr.querySelectorAll('[data-ocr]').forEach(el => el.classList.toggle('bad', r.bad.includes(el.dataset.ocr.split('.')[1]))); }
+        if (st) st.innerHTML = (r.status === 'ok' ? '<span class="ok">✓</span>' : r.status === 'warn' ? '<span class="warn">⚠</span>' : '<span class="muted">–</span>') + `<div class="small">${r.notes.map(esc).join('<br>')}</div>`;
+      });
+      md.addEventListener('click', e => {
+        const t = e.target;
+        if (t.closest('.ocr-photo')) { t.closest('.ocr-photo').classList.toggle('zoom'); return; }
+        if (t.dataset.ocrRm != null) { parsed.rows.splice(+t.dataset.ocrRm, 1); redraw(); return; }
+        if (t.dataset.ocrUndo != null) {
+          const r = parsed.rows[+t.dataset.ocrUndo];
+          Object.assign(r, r.orig); r.fixed = false; ocrCheckRow(r, parsed.known, false, parsed.others); redraw(); return;
+        }
+        if (t.id === 'ocrReparse') { const title = $('#ocrTitle').value; parsed = ocrCheck(parseOcrText($('#ocrText').value), o.id); if (!parsed.title) parsed.title = title; $('#ocrTitle').value = parsed.title; redraw(); }
+      });
+    }
     const res = await pending;
     if (!res) return;
     const cur = getSop(o.id);
     if (!cur) return;
     if (res.title && (!cur.title.trim() || cur.title === '未命名 SOP')) cur.title = res.title;
     cur.rows = cur.rows.filter(x => x.name.trim() || x.qty);
-    for (const r of res.rows) { const x = normSopRow(r); sopFillFromPrice(x); cur.rows.push(x); }
+    for (const r of res.rows) {
+      const x = normSopRow({ name: r.name, qty: r.qty, unit: r.unit, vendor: r.vendor, specQty: r.specQty, specUnit: r.specUnit, price: r.price, loss: r.loss });
+      sopFillFromPrice(x); cur.rows.push(x);
+    }
     if (res.steps.length) cur.steps = [cur.steps.trim(), res.steps.join('\n')].filter(Boolean).join('\n');
     if (res.notes.length) cur.notes = [cur.notes.trim(), res.notes.join('\n')].filter(Boolean).join('\n');
     sopTouch(cur);
     if (route.name === 'sop' && route.id === cur.id) render(); else location.hash = '#/sop/' + encodeURIComponent(cur.id);
-    toast(`已填入 ${res.rows.length} 項食材`);
+    const warn = res.rows.filter(x => x.status === 'warn').length;
+    toast(`已填入 ${res.rows.length} 項食材${warn ? `（${warn} 項請再確認）` : ''}`);
   }
 
   function sopTouch(o) { o.updatedAt = Date.now(); persist(); }
@@ -2652,7 +2769,7 @@
   }
 
   // 供桌面版自我測試使用
-  window.__kitchenOcr = parseOcrText;
+  window.__kitchenOcr = t => ocrCheck(parseOcrText(t), '');
   window.__kitchen = { get db() { return db; }, persist, U, version: APP_VERSION };
   init();
 })();
