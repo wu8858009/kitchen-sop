@@ -2,7 +2,7 @@
 (() => {
   'use strict';
   const U = window.KUnits;
-  const APP_VERSION = '2.0.1';
+  const APP_VERSION = '2.1.0';
   const IS_DESKTOP = /[?&]desktop=1\b/.test(location.search);
 
   const $ = (s, el = document) => el.querySelector(s);
@@ -1263,6 +1263,7 @@
   function viewSops() {
     return `<div class="page">
       <div class="page-head"><h1 class="head-title">SOP 主資料</h1><div class="spacer"></div>
+        <label class="btn">📷 從照片建立<input type="file" accept="image/*" data-act-change="sop-ocr-new" hidden></label>
         <button class="btn primary" data-act="sop-new">＋ 新增 SOP</button></div>
       <p class="muted">依紙本 SOP 表單建立每道品項的主資料：填入使用份量、規格、進價、耗損，自動算出採購份量、成本、成本合計與毛利。</p>
       <input id="sopq" class="search" type="search" placeholder="搜尋 SOP 名稱或食材…" value="${esc(sopFilter)}" autocomplete="off">
@@ -1317,6 +1318,7 @@
     return `<div class="page sop-page">
       <div class="page-head no-print">
         <a class="btn ghost" href="#/sops">← SOP 列表</a><div class="spacer"></div>
+        <label class="btn">📷 照片辨識<input type="file" accept="image/*" data-act-change="sop-ocr" hidden></label>
         <button class="btn" data-act="sop-from-recipe">從食譜帶入</button>
         <button class="btn" data-act="sop-print">🖨 列印</button>
         <button class="btn" data-act="sop-dup">複製</button>
@@ -1456,6 +1458,107 @@
       }
       return new File([pdf.output('blob')], `${(o.title || 'SOP').replace(/[\\/:*?"<>|]/g, '_')}_${dateStr()}.pdf`, { type: 'application/pdf' });
     } finally { host.remove(); }
+  }
+
+
+  // ---- 照片辨識：照片 → Google 雲端硬碟 OCR（後端 a:'ocr'）→ 文字 → 解析成 SOP 欄位，確認後填入
+  const OCR_UNITS = '公克|公斤|台斤|毫升|公升|kg|ml|cc|克|斤|兩|g|L|個|顆|片|包|條|根|把|罐|瓶|盒|隻|尾|瓣|粒|張|份|支|塊|袋|桶|箱';
+  const OCR_UNIT_RE = new RegExp('^(' + OCR_UNITS + ')$', 'i');
+  const OCR_HEAD_RE = /食材明細|使用份量|廠商|品牌|規格|進價|採購份量|總製成量|製成量|耗損|成本|考核|補考|通過|^NO$/i;
+  const ocrHalf = t => String(t).replace(/[！-～]/g, c => String.fromCharCode(c.charCodeAt(0) - 0xFEE0)).replace(/　/g, ' ');
+  const ocrNum = t => /^\d+(\.\d+)?$/.test(String(t || '').replace(/,/g, ''));
+
+  function parseOcrLine(line) {
+    const str = ocrHalf(line).replace(/[|｜]/g, ' ').replace(/(\d)\s*%/g, '$1% ')
+      .replace(new RegExp('(\\d)\\s*(' + OCR_UNITS + ')(?![A-Za-z])', 'gi'), '$1 $2 ').replace(/\s+/g, ' ').trim();
+    const tk = str.split(' ').filter(Boolean);
+    let i = 0;
+    if (/^\d{1,2}$/.test(tk[0]) && tk[1] && !ocrNum(tk[1])) i = 1; // 最前面的 NO
+    const name = [];
+    while (i < tk.length && !ocrNum(tk[i])) name.push(tk[i++]);
+    const nm = name.join(' ').trim();
+    if (!nm || i >= tk.length || !/[\u3400-\u9fffA-Za-z]/.test(nm) || OCR_HEAD_RE.test(nm)) return null;
+    const row = { name: nm, qty: tk[i++].replace(/,/g, ''), unit: '', vendor: '', specQty: '', specUnit: '', price: '', loss: '' };
+    if (OCR_UNIT_RE.test(tk[i] || '')) row.unit = tk[i++];
+    const vendor = [];
+    while (i < tk.length && !ocrNum(tk[i]) && !/%$/.test(tk[i])) vendor.push(tk[i++]);
+    row.vendor = vendor.join(' ');
+    // 剩下的數字：第一個帶單位的是規格，第一個不帶單位的是進價，帶 % 的是耗損（採購份量會自動算，不用讀）
+    for (let j = i; j < tk.length; j++) {
+      const t = tk[j];
+      if (/^\d+(\.\d+)?%$/.test(t)) { row.loss = t.slice(0, -1); continue; }
+      if (!ocrNum(t)) continue;
+      const u = OCR_UNIT_RE.test(tk[j + 1] || '') ? tk[++j] : '';
+      if (u && !row.specQty) { row.specQty = t.replace(/,/g, ''); row.specUnit = u; }
+      else if (!u && !row.price && !row.specQty) row.price = t.replace(/,/g, '');
+      else if (!u && !row.price && row.specQty && !/\.\d\d$/.test(t)) row.price = t.replace(/,/g, '');
+    }
+    const fixU = u => (/^g$/i.test(u) || u === '克' ? '公克' : /^kg$/i.test(u) ? '公斤' : u);
+    row.unit = fixU(row.unit) || '公克'; row.specUnit = fixU(row.specUnit) || (row.specQty ? row.unit : '公克');
+    return row;
+  }
+
+  function parseOcrText(text) {
+    const out = { title: '', rows: [], steps: [], notes: [] };
+    let mode = 'table';
+    for (const raw of String(text || '').split(/\r?\n/)) {
+      const line = raw.trim();
+      if (!line) continue;
+      if (/操作步驟/.test(line)) { mode = 'steps'; continue; }
+      if (/注意事項/.test(line)) { mode = 'notes'; continue; }
+      if (/^照片$/.test(line)) { mode = mode === 'steps' ? 'none' : mode; continue; }
+      if (/成本合計|淨售價|含稅售價/.test(line)) { mode = 'none'; continue; }
+      if (!out.title && /\d{4}[.\/-]\d{1,2}/.test(line) && !/考核|補考/.test(line) && line.length <= 40) { out.title = ocrHalf(line).replace(/\s+/g, ''); continue; }
+      if (mode === 'table') { const r = parseOcrLine(line); if (r) out.rows.push(r); }
+      else if (mode === 'steps' || mode === 'notes') {
+        const t = line.replace(/^\d{1,2}[.、)\s]+/, '').trim();
+        if (/[\u3400-\u9fff]/.test(t) && !/^\d+$/.test(t)) out[mode].push(t);
+      }
+    }
+    return out;
+  }
+
+  function ocrPreviewHtml(p) {
+    const rows = p.rows.map((x, k) => `<tr><td>${k + 1}</td><td class="l">${esc(x.name)}</td><td>${esc(x.qty)} ${esc(x.unit)}</td><td class="l">${esc(x.vendor)}</td>
+      <td>${x.specQty ? esc(x.specQty + ' ' + x.specUnit) : ''}</td><td>${esc(x.price)}</td><td>${x.loss ? esc(x.loss) + '%' : ''}</td></tr>`).join('');
+    return `<p><b>品項名稱：</b>${esc(p.title) || '<span class="muted">（沒讀到，保留原本的）</span>'}</p>
+      <div class="sop-table-wrap"><table class="ocr-table"><thead><tr><th>NO</th><th>食材明細</th><th>使用份量</th><th>廠商/品牌</th><th>規格</th><th>進價</th><th>耗損</th></tr></thead>
+      <tbody>${rows || '<tr><td colspan="7" class="muted">沒有辨識出食材列。可以在左邊把每項食材整理成一行，例如「丹麥皇冠牌梅花豬 180 公克 大山聯合 1000 公克 10%」。</td></tr>'}</tbody></table></div>
+      ${p.steps.length ? `<p><b>操作步驟：</b>${p.steps.length} 行</p>` : ''}${p.notes.length ? `<p><b>注意事項：</b>${p.notes.length} 行</p>` : ''}`;
+  }
+
+  async function sopOcr(o, file) {
+    if (!db.cloud) return toast('照片辨識需要先在「設定」連線 Google 雲端', 'err');
+    toast('照片辨識中…（約 10～30 秒）');
+    let text;
+    try {
+      const img = await resizeImage(file, 2400);
+      const j = await cloudCall({ a: 'ocr', image: img.split(',')[1], mime: 'image/jpeg' });
+      text = j.text || '';
+    } catch (e) { return toast('照片辨識失敗：' + e.message, 'err'); }
+    if (!text.trim()) return toast('照片裡沒有辨識出文字，請拍清楚一點再試', 'err');
+    let parsed = parseOcrText(text);
+    const pending = modal({
+      title: '照片辨識結果',
+      body: `<p class="hint">左邊是辨識出的文字，可以直接修改（一行一項食材）；右邊即時顯示會填入的內容。確認後按「填入」，食材會加在現有食材後面。</p>
+        <div class="ocr-grid"><textarea id="ocrText" rows="18" spellcheck="false">${esc(text)}</textarea><div id="ocrPrev">${ocrPreviewHtml(parsed)}</div></div>`,
+      buttons: [{ label: '取消', value: null }, { label: '填入', cls: 'primary', value: () => parsed }],
+    });
+    const md = $('#modal .modal'); if (md) md.classList.add('ocr-modal');
+    const ta = $('#ocrText');
+    if (ta) ta.addEventListener('input', () => { parsed = parseOcrText(ta.value); $('#ocrPrev').innerHTML = ocrPreviewHtml(parsed); });
+    const res = await pending;
+    if (!res) return;
+    const cur = getSop(o.id);
+    if (!cur) return;
+    if (res.title && (!cur.title.trim() || cur.title === '未命名 SOP')) cur.title = res.title;
+    cur.rows = cur.rows.filter(x => x.name.trim() || x.qty);
+    for (const r of res.rows) { const x = normSopRow(r); sopFillFromPrice(x); cur.rows.push(x); }
+    if (res.steps.length) cur.steps = [cur.steps.trim(), res.steps.join('\n')].filter(Boolean).join('\n');
+    if (res.notes.length) cur.notes = [cur.notes.trim(), res.notes.join('\n')].filter(Boolean).join('\n');
+    sopTouch(cur);
+    if (route.name === 'sop' && route.id === cur.id) render(); else location.hash = '#/sop/' + encodeURIComponent(cur.id);
+    toast(`已填入 ${res.rows.length} 項食材`);
   }
 
   function sopTouch(o) { o.updatedAt = Date.now(); persist(); }
@@ -2225,6 +2328,14 @@
       }
       return;
     }
+    if ((act === 'sop-ocr' || act === 'sop-ocr-new') && t.files[0]) {
+      const file = t.files[0];
+      t.value = '';
+      let o = act === 'sop-ocr' ? getSop(route.id) : null;
+      if (!o) { o = normSop({}); db.sops.push(o); persist(); location.hash = '#/sop/' + encodeURIComponent(o.id); }
+      sopOcr(o, file);
+      return;
+    }
     if (act === 'sop-photo' && t.files[0]) {
       const o = getSop(route.id);
       try { o.photo = await resizeImage(t.files[0]); sopTouch(o); render(); } catch (err) { toast(err.message, 'err'); }
@@ -2320,6 +2431,7 @@
   }
 
   // 供桌面版自我測試使用
+  window.__kitchenOcr = parseOcrText;
   window.__kitchen = { get db() { return db; }, persist, U, version: APP_VERSION };
   init();
 })();

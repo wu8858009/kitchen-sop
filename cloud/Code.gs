@@ -5,6 +5,7 @@
  * 網頁版與 Windows 版用 POST { a: 動作, key: 存取密碼, ... } 呼叫這個「網頁應用程式」：
  *   ping / rev / load / save（save 帶 baseRev，版本不符時回 conflict，由前端合併後再送）
  *   translate（用 Google 翻譯把中文轉成越南文）
+ *   ocr（照片文字辨識：用 Google 雲端硬碟內建 OCR，暫存成文件讀出文字後立即刪除）
  * 資料以一般表格存放在「食譜」「食材」「步驟」「單價」工作表，可以直接在試算表裡查看或修改；
  * 手動修改後 onEdit 會更新版本號，各裝置下次同步時就會讀到。
  *
@@ -51,6 +52,7 @@ function doPost(e) {
       case "load": return out_(load_(ss));
       case "save": return out_(save_(ss, req));
       case "translate": return out_(translate_(req));
+      case "ocr": return out_(ocr_(req));
     }
     return out_({ ok: false, error: "未知的動作：" + req.a });
   } catch (err) {
@@ -299,6 +301,36 @@ function translate_(req) {
     try { return LanguageApp.translate(s, "zh-TW", "vi"); } catch (e) { return ""; }
   });
   return { ok: true, vi: vi };
+}
+
+// ---------------------------------------------------------------- 照片文字辨識（OCR）
+
+/** { image: base64, mime } → { text }。需要「進階服務 Drive」與雲端硬碟、文件權限（執行 authorizeOcr 授權一次） */
+function ocr_(req) {
+  const bytes = Utilities.base64Decode(String(req.image || ""));
+  if (!bytes.length) return { ok: false, error: "沒有收到照片" };
+  if (bytes.length > 15 * 1024 * 1024) return { ok: false, error: "照片太大" };
+  const blob = Utilities.newBlob(bytes, String(req.mime || "image/jpeg"), "sop-ocr.jpg");
+  let id = "";
+  try {
+    id = Drive.Files.create({ name: "SOP照片辨識（暫存，可刪除）", mimeType: "application/vnd.google-apps.document" }, blob, { ocrLanguage: "zh-TW" }).id;
+    const text = DocumentApp.openById(id).getBody().getText();
+    return { ok: true, text: text };
+  } catch (e) {
+    const msg = String(e && e.message ? e.message : e);
+    if (/authoriz|permission|權限|授權/i.test(msg)) return { ok: false, error: "雲端尚未授權照片辨識：請在 Apps Script 編輯器執行一次 authorizeOcr" };
+    return { ok: false, error: "照片辨識失敗：" + msg };
+  } finally {
+    if (id) { try { Drive.Files.remove(id); } catch (x) { /* 刪不掉就留在雲端硬碟，名稱已註明可刪除 */ } }
+  }
+}
+
+/** 在 Apps Script 編輯器手動執行一次，授權照片辨識需要的雲端硬碟與文件權限 */
+function authorizeOcr() {
+  const id = Drive.Files.create({ name: "SOP照片辨識（授權測試，可刪除）", mimeType: "application/vnd.google-apps.document" }).id;
+  DocumentApp.openById(id).getBody().getText();
+  Drive.Files.remove(id);
+  Logger.log("完成：照片辨識已授權，可以在 App 使用了。");
 }
 
 // ---------------------------------------------------------------- 在試算表手動修改時
