@@ -2,7 +2,7 @@
 (() => {
   'use strict';
   const U = window.KUnits;
-  const APP_VERSION = '2.2.0';
+  const APP_VERSION = '2.3.0';
   const IS_DESKTOP = /[?&]desktop=1\b/.test(location.search);
 
   const $ = (s, el = document) => el.querySelector(s);
@@ -1758,12 +1758,58 @@
     if (hit[3]() !== false) e.preventDefault();
   });
 
+  // ---- 貼上（Ctrl+V）或拖曳照片：依目前頁面決定用途
+  async function useImage(file) {
+    if (!file || !/^image\//.test(file.type)) return false;
+    if (route.name === 'edit' || route.name === 'new') {
+      if (!draft) return false;
+      try { draft.r.photo = await resizeImage(file); draft.dirty = true; rerenderEdit(); toast('已貼上食譜照片'); } catch (e) { toast(e.message, 'err'); }
+      return true;
+    }
+    if (route.name === 'sops') { const o = normSop({}); db.sops.push(o); persist(); location.hash = '#/sop/' + encodeURIComponent(o.id); sopOcr(o, file); return true; }
+    if (route.name === 'sop') {
+      const o = getSop(route.id);
+      if (!o) return false;
+      const how = await modal({
+        title: '貼上的照片要做什麼？',
+        body: '<p>「照片辨識」會讀取表單上的文字並填入食材明細；「設為照片」會放進這份 SOP 的照片欄。</p>',
+        buttons: [{ label: '取消', value: null }, { label: '設為照片', value: 'photo' }, { label: '照片辨識', cls: 'primary', value: 'ocr' }],
+      });
+      if (how === 'ocr') sopOcr(o, file);
+      else if (how === 'photo') { try { o.photo = await resizeImage(file); sopTouch(o); render(); toast('已設為 SOP 照片'); } catch (e) { toast(e.message, 'err'); } }
+      return true;
+    }
+    toast('照片可以貼到「編輯食譜」或「SOP」頁面', 'err');
+    return true;
+  }
+  const imageFrom = list => [...(list || [])].map(it => (it.getAsFile ? (it.kind === 'file' ? it.getAsFile() : null) : it)).find(f => f && /^image\//.test(f.type));
+  document.addEventListener('paste', e => {
+    if ($('#modal.open')) return;
+    const cd = e.clipboardData;
+    const img = cd && imageFrom(cd.items && cd.items.length ? cd.items : cd.files);
+    if (!img) return;                                                  // 沒有圖片：照常貼上文字
+    const t = e.target, inField = t && /^(INPUT|TEXTAREA)$/.test(t.tagName) && t.type !== 'file';
+    if (inField && cd.getData('text/plain')) return;                   // 在輸入框且也有文字：貼文字
+    e.preventDefault();
+    useImage(img);
+  });
+  // 拖曳照片檔到視窗上
+  document.addEventListener('dragover', e => { if (e.dataTransfer && [...e.dataTransfer.types].includes('Files')) { e.preventDefault(); document.body.classList.add('drop-on'); } });
+  document.addEventListener('dragleave', e => { if (!e.relatedTarget) document.body.classList.remove('drop-on'); });
+  document.addEventListener('drop', e => {
+    document.body.classList.remove('drop-on');
+    const img = e.dataTransfer && imageFrom(e.dataTransfer.files);
+    if (!img) return;
+    e.preventDefault();
+    if (!$('#modal.open')) useImage(img);
+  });
+
   function showShortcuts() {
     const groups = {};
     for (const [k, d, pg] of SHORTCUTS) (groups[pg] = groups[pg] || []).push([k, d]);
     const body = Object.entries(groups).map(([pg, list]) => `<h4 class="kbd-h">${PAGE_NAMES[pg] || pg}</h4>
       <table class="kbd-table">${list.map(([k, d]) => `<tr><td>${k.split('+').map(x => `<kbd>${esc(x)}</kbd>`).join('+')}</td><td>${esc(d)}</td></tr>`).join('')}</table>`).join('');
-    modal({ title: '⌨ 快捷鍵', body: `<div class="kbd-list">${body}</div><p class="hint">Mac 用 ⌘ 代替 Ctrl。正在打字時只有組合鍵（Ctrl／Alt）有效；注音選字時不會觸發。</p>`, buttons: [{ label: '關閉', cls: 'primary', value: null }] });
+    modal({ title: '⌨ 快捷鍵', body: `<div class="kbd-list">${body}</div><p class="hint">照片可以直接按 Ctrl+V 貼上，或把圖片檔拖進視窗：編輯食譜＝設為食譜照片；SOP 表單＝照片辨識或設為照片；SOP 列表＝從照片建立。<br>Mac 用 ⌘ 代替 Ctrl。正在打字時只有組合鍵（Ctrl／Alt）有效；注音選字時不會觸發。</p>`, buttons: [{ label: '關閉', cls: 'primary', value: null }] });
     const md = $('#modal .modal'); if (md) md.classList.add('kbd-modal');
   }
 

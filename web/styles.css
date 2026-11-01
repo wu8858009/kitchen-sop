@@ -430,6 +430,9 @@ body:has(.dragging) { user-select: none; -webkit-user-select: none; }
 .kbd-table td:first-child { white-space: nowrap; width: 1%; padding-right: 10px; }
 kbd { display: inline-block; min-width: 1.6em; padding: 1px 6px; border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 6px; background: var(--bg); font: 600 .8rem ui-monospace, Consolas, monospace; text-align: center; }
 
+/* 拖曳照片進來時的提示框 */
+body.drop-on::after { content: "放開即可加入照片"; position: fixed; inset: 12px; z-index: 80; display: grid; place-items: center; border: 3px dashed var(--accent); border-radius: 18px; background: rgba(0, 0, 0, .35); color: #fff; font-size: 1.4rem; font-weight: 700; pointer-events: none; }
+
 /* 單價表 */
 .price-head, .price-row { display: grid; grid-template-columns: 2fr 1fr .7fr .9fr 1.6fr 38px; gap: 6px; align-items: center; }
 .price-head { font-size: .8rem; color: var(--muted); font-weight: 600; padding-bottom: 6px; }
