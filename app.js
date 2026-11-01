@@ -2,7 +2,7 @@
 (() => {
   'use strict';
   const U = window.KUnits;
-  const APP_VERSION = '1.7.3';
+  const APP_VERSION = '1.8.0';
   const IS_DESKTOP = /[?&]desktop=1\b/.test(location.search);
 
   const $ = (s, el = document) => el.querySelector(s);
@@ -1659,6 +1659,24 @@
       }
     }
   });
+
+  // Windows 版：點進輸入框時自動切換輸入法——文字欄用中文，數字欄用英數（注音模式下數字鍵會打出注音）
+  function imeMode(t) {
+    if (!t || !/^(INPUT|TEXTAREA)$/.test(t.tagName) || t.readOnly || t.disabled) return '';
+    const type = (t.type || 'text').toLowerCase();
+    if (t.tagName === 'INPUT' && !/^(text|search|number|url|password)$/.test(type)) return '';
+    if (t.lang === 'vi' || t.dataset.ime === 'none') return '';                  // 越南文欄位：不干涉
+    if (/^(number|url|password)$/.test(type) || /^(decimal|numeric)$/.test(t.inputMode)) return 'en';
+    if (t.id === 'mult' || t.id === 'target' || t.id === 'cloudUrl' || t.dataset.cheatMult != null || t.dataset.plan != null) return 'en';
+    if (/\.unit$/.test(t.dataset.bind || '') || /\.perUnit$/.test(t.dataset.price || '') || t.id === 'anchorVal') return ''; // 單位、量：中英都有
+    return 'zh';
+  }
+  if (IS_DESKTOP) {
+    document.addEventListener('focusin', e => {
+      const m = imeMode(e.target);
+      if (m) desktopApi().then(a => a.set_ime && a.set_ime(m)).catch(() => {});
+    });
+  }
 
   // 中文輸入法（注音、倉頡…）選字中不處理，選好字（compositionend）後再處理；
   // 否則重畫畫面或寫入半成品的注音符號會打斷輸入法
