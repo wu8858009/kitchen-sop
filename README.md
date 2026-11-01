@@ -36,6 +36,10 @@ git subtree split --prefix web -b gh-pages && git push origin gh-pages
 本機測試：`cd web && python -m http.server 8765` 後開 http://127.0.0.1:8765 。
 修改 JS/CSS 後請同步調整 `index.html` 的 `?v=` 與 `sw.js` 的 `CACHE` 版本。
 
+## Windows 版輸入法
+點進輸入框時自動切換輸入法：菜名、食材、步驟、備註、搜尋等文字欄切到「中文」，數量、倍數、價格等數字欄切到「英數」（注音模式下數字鍵會打出注音）。越南文欄位與單位欄不切換。
+（由 `desktop/main.py` 的 `set_ime` 透過 WM_IME_CONTROL 設定；網頁版無法控制輸入法。）
+
 ## Windows 版打包
 需要 Python、pywebview、PyInstaller、PySide6（只用來產生圖示）。
 

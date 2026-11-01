@@ -66,6 +66,78 @@ class Api:
         path.write_text(text, encoding="utf-8")
         return str(path)
 
+    def set_ime(self, mode):
+        """輸入框取得焦點時切換輸入法：'zh' 中文、'en' 英數"""
+        return _set_ime(mode == "zh")
+
+
+# ---------------------------------------------------------------- 輸入法切換
+# WebView2 的輸入框在另一個行程，不能直接用 ImmGetContext；改送 WM_IME_CONTROL 給焦點視窗的預設 IME 視窗，
+# 微軟注音等新版輸入法也吃這個訊息。
+_WM_IME_CONTROL = 0x0283
+_IMC_GETCONVERSIONMODE, _IMC_SETCONVERSIONMODE, _IMC_GETOPENSTATUS, _IMC_SETOPENSTATUS = 0x1, 0x2, 0x5, 0x6
+_IME_CMODE_NATIVE = 0x1
+_WM_INPUTLANGCHANGEREQUEST = 0x0050
+_ZH_LANGS = (0x0404, 0x0C04, 0x1404, 0x0804, 0x1004)  # 繁中台灣優先，其次香港、澳門、簡中
+
+
+class _GUITHREADINFO(ctypes.Structure):
+    _fields_ = [("cbSize", ctypes.c_uint32), ("flags", ctypes.c_uint32), ("hwndActive", ctypes.c_void_p),
+                ("hwndFocus", ctypes.c_void_p), ("hwndCapture", ctypes.c_void_p), ("hwndMenuOwner", ctypes.c_void_p),
+                ("hwndMoveSize", ctypes.c_void_p), ("hwndCaret", ctypes.c_void_p), ("rcCaret", ctypes.c_long * 4)]
+
+
+def _focus_hwnd():
+    u = ctypes.windll.user32
+    u.GetForegroundWindow.restype = ctypes.c_void_p
+    fg = u.GetForegroundWindow()
+    if not fg:
+        return None, 0
+    tid = u.GetWindowThreadProcessId(ctypes.c_void_p(fg), None)
+    gti = _GUITHREADINFO(cbSize=ctypes.sizeof(_GUITHREADINFO))
+    if u.GetGUIThreadInfo(tid, ctypes.byref(gti)) and gti.hwndFocus:
+        return gti.hwndFocus, tid
+    return fg, tid
+
+
+def _ime_send(hwnd, cmd, val=0):
+    u, imm = ctypes.windll.user32, ctypes.windll.imm32
+    imm.ImmGetDefaultIMEWnd.restype = ctypes.c_void_p
+    ime = imm.ImmGetDefaultIMEWnd(ctypes.c_void_p(hwnd))
+    if not ime:
+        return None
+    res = ctypes.c_size_t(0)
+    ok = u.SendMessageTimeoutW(ctypes.c_void_p(ime), _WM_IME_CONTROL, ctypes.c_size_t(cmd), ctypes.c_ssize_t(val), 0x2, 300, ctypes.byref(res))
+    return res.value if ok else None
+
+
+def _set_ime(chinese):
+    try:
+        hwnd, tid = _focus_hwnd()
+        if not hwnd:
+            return False
+        u = ctypes.windll.user32
+        if chinese:
+            # 目前不是中文鍵盤時，切到已安裝的中文輸入法
+            u.GetKeyboardLayout.restype = ctypes.c_void_p
+            cur = (u.GetKeyboardLayout(tid) or 0) & 0xFFFF
+            if cur not in _ZH_LANGS:
+                n = u.GetKeyboardLayoutList(0, None)
+                arr = (ctypes.c_void_p * n)()
+                u.GetKeyboardLayoutList(n, arr)
+                hkls = [h for h in arr if h]
+                zh = next((h for lang in _ZH_LANGS for h in hkls if h & 0xFFFF == lang), None)
+                if zh:
+                    u.PostMessageW(ctypes.c_void_p(hwnd), _WM_INPUTLANGCHANGEREQUEST, 0, ctypes.c_void_p(zh))
+                    time.sleep(0.15)
+        _ime_send(hwnd, _IMC_SETOPENSTATUS, 1)
+        mode = _ime_send(hwnd, _IMC_GETCONVERSIONMODE) or 0
+        mode = (mode | _IME_CMODE_NATIVE) if chinese else (mode & ~_IME_CMODE_NATIVE)
+        _ime_send(hwnd, _IMC_SETCONVERSIONMODE, mode)
+        return _ime_send(hwnd, _IMC_GETCONVERSIONMODE)
+    except Exception:  # noqa: BLE001 - 切換失敗不影響輸入
+        return False
+
 
 def _daily_backup(text):
     """每天保留一份資料快照，最多 KEEP_BACKUPS 份"""
@@ -124,6 +196,18 @@ def _selftest(out_path):
         result["sync"] = _window.evaluate_js("JSON.stringify(window.__kitchen.db.sync)")
         result["file_exists"] = DATA_FILE.exists()
         result["window"] = [_window.x, _window.y, _window.width, _window.height]
+        if os.environ.get("KITCHENSOP_IMETEST"):
+            # 點進數字欄 → 英數；點進文字欄 → 中文（讀回 IME 的轉換模式，bit0 = 中文）
+            ime = {}
+            for name, js in (("mult_en", "document.querySelector('#mult').focus()"),
+                             ("edit_name_zh", "location.hash='#/edit/'+window.__kitchen.db.recipes[0].id; setTimeout(()=>document.querySelector('[data-bind=\"name\"]').focus(),300)"),
+                             ("edit_qty_en", "document.querySelector('[data-bind=\"ingredients.0.qty\"]').focus()"),
+                             ("edit_step_zh", "document.querySelector('[data-bind=\"steps.0.text\"]').focus()")):
+                _window.evaluate_js(js)
+                time.sleep(1.2)
+                hwnd, _ = _focus_hwnd()
+                ime[name] = _ime_send(hwnd, _IMC_GETCONVERSIONMODE) if hwnd else None
+            result["ime"] = ime
         result["ok"] = bool(result["names"]) and result["file_exists"]
     except Exception as e:  # noqa: BLE001
         result["error"] = repr(e)
