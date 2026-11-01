@@ -2,7 +2,7 @@
 (() => {
   'use strict';
   const U = window.KUnits;
-  const APP_VERSION = '2.1.0';
+  const APP_VERSION = '2.1.1';
   const IS_DESKTOP = /[?&]desktop=1\b/.test(location.search);
 
   const $ = (s, el = document) => el.querySelector(s);
@@ -1464,7 +1464,8 @@
   // ---- 照片辨識：照片 → Google 雲端硬碟 OCR（後端 a:'ocr'）→ 文字 → 解析成 SOP 欄位，確認後填入
   const OCR_UNITS = '公克|公斤|台斤|毫升|公升|kg|ml|cc|克|斤|兩|g|L|個|顆|片|包|條|根|把|罐|瓶|盒|隻|尾|瓣|粒|張|份|支|塊|袋|桶|箱';
   const OCR_UNIT_RE = new RegExp('^(' + OCR_UNITS + ')$', 'i');
-  const OCR_HEAD_RE = /食材明細|使用份量|廠商|品牌|規格|進價|採購份量|總製成量|製成量|耗損|成本|考核|補考|通過|^NO$/i;
+  const OCR_HEAD_RE = /食材明細|使用份量|廠商|品牌|規格|進價|採購份量|總製|成量|耗損|損耗|未稅|含稅|成本|考核|補考|通過|時間|^NO$|^[(（][^)）]*[)）]$/i;
+  const fixUnit = u => (/^g$/i.test(u) || u === '克' ? '公克' : /^kg$/i.test(u) ? '公斤' : u);
   const ocrHalf = t => String(t).replace(/[！-～]/g, c => String.fromCharCode(c.charCodeAt(0) - 0xFEE0)).replace(/　/g, ' ');
   const ocrNum = t => /^\d+(\.\d+)?$/.test(String(t || '').replace(/,/g, ''));
 
@@ -1493,13 +1494,56 @@
       else if (!u && !row.price && !row.specQty) row.price = t.replace(/,/g, '');
       else if (!u && !row.price && row.specQty && !/\.\d\d$/.test(t)) row.price = t.replace(/,/g, '');
     }
-    const fixU = u => (/^g$/i.test(u) || u === '克' ? '公克' : /^kg$/i.test(u) ? '公斤' : u);
-    row.unit = fixU(row.unit) || '公克'; row.specUnit = fixU(row.specUnit) || (row.specQty ? row.unit : '公克');
+    row.unit = fixUnit(row.unit) || '公克'; row.specUnit = fixUnit(row.specUnit) || (row.specQty ? row.unit : '公克');
     return row;
   }
 
+  // Google 的 OCR 常把表格「一欄一欄」讀出來（品名、數量、廠商分在不同行）：改依出現順序配對——
+  // 品名後面的數字是使用份量；單位後面的字是廠商；其他「數量＋單位」是規格；% 是耗損；200.00 這種採購份量會自動算，略過
+  function parseOcrStream(lines) {
+    const toks = [];
+    lines.forEach((raw, ln) => {
+      const str = ocrHalf(raw).replace(/[|｜□口]/g, ' ').replace(/(\d)\s*%/g, '$1% ')
+        .replace(new RegExp('(\\d)\\s*(' + OCR_UNITS + ')(?![A-Za-z])', 'gi'), '$1 $2 ');
+      str.split(/\s+/).filter(Boolean).forEach(t => toks.push({ t, ln }));
+    });
+    const items = [], vendors = [], specs = [], prices = [], losses = [];
+    const isUnit = t => OCR_UNIT_RE.test(t || '');
+    let cur = null, afterUnit = false, loneUnit = '', nameLine = -1;
+    for (let i = 0; i < toks.length; i++) {
+      const { t, ln } = toks[i], next = (toks[i + 1] || {}).t;
+      if (/^\d+(\.\d+)?%$/.test(t)) { losses.push(t.slice(0, -1)); afterUnit = false; loneUnit = ''; continue; }
+      if (ocrNum(t)) {
+        const n = t.replace(/,/g, '');
+        if (isUnit(next)) {
+          i++;
+          afterUnit = true; loneUnit = '';
+          if (/\.\d\d$/.test(n)) continue;                  // 採購份量（自動算）
+          if (cur && !cur.qty) { cur.qty = n; cur.unit = next; } else specs.push([n, next]);
+          continue;
+        }
+        if (cur && !cur.qty) cur.qty = n;
+        else if (loneUnit) specs.push([n, loneUnit]);       // 「公克 1000」
+        else if (!(/^\d+$/.test(n) && +n <= 60)) prices.push(n); // 60 以下的整數多半是列號 NO
+        afterUnit = false; loneUnit = '';
+        continue;
+      }
+      if (isUnit(t)) { afterUnit = true; loneUnit = t; continue; }
+      loneUnit = '';
+      if (OCR_HEAD_RE.test(t) || !/[\u3400-\u9fffA-Za-z]/.test(t)) { afterUnit = false; continue; }
+      if (afterUnit) { vendors.push(t); afterUnit = false; continue; }
+      if (cur && !cur.qty && nameLine === ln) cur.name += ' ' + t;   // 同一行的品名接起來（例如「M9 澳洲和牛…」）
+      else { cur = { name: t, qty: '', unit: '' }; items.push(cur); nameLine = ln; }
+    }
+    return items.filter(it => it.qty).map((it, k) => {
+      const sp = specs[k] || [];
+      const unit = fixUnit(it.unit || sp[1] || '公克');
+      return { name: it.name, qty: it.qty, unit, vendor: vendors[k] || '', specQty: sp[0] || '', specUnit: fixUnit(sp[1] || unit), price: prices[k] || '', loss: losses[k] || '' };
+    });
+  }
+
   function parseOcrText(text) {
-    const out = { title: '', rows: [], steps: [], notes: [] };
+    const out = { title: '', rows: [], steps: [], notes: [] }, tableLines = [];
     let mode = 'table';
     for (const raw of String(text || '').split(/\r?\n/)) {
       const line = raw.trim();
@@ -1509,12 +1553,15 @@
       if (/^照片$/.test(line)) { mode = mode === 'steps' ? 'none' : mode; continue; }
       if (/成本合計|淨售價|含稅售價/.test(line)) { mode = 'none'; continue; }
       if (!out.title && /\d{4}[.\/-]\d{1,2}/.test(line) && !/考核|補考/.test(line) && line.length <= 40) { out.title = ocrHalf(line).replace(/\s+/g, ''); continue; }
-      if (mode === 'table') { const r = parseOcrLine(line); if (r) out.rows.push(r); }
+      if (mode === 'table') { tableLines.push(line); const r = parseOcrLine(line); if (r) out.rows.push(r); }
       else if (mode === 'steps' || mode === 'notes') {
         const t = line.replace(/^\d{1,2}[.、)\s]+/, '').trim();
         if (/[\u3400-\u9fff]/.test(t) && !/^\d+$/.test(t)) out[mode].push(t);
       }
     }
+    // 一行一項的寫法用逐行解析；讀不出來（表格被拆成一欄一欄）就改用順序配對，取讀到較多項的
+    const stream = parseOcrStream(tableLines);
+    if (stream.length > out.rows.length) out.rows = stream;
     return out;
   }
 
