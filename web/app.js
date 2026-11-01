@@ -2,7 +2,7 @@
 (() => {
   'use strict';
   const U = window.KUnits;
-  const APP_VERSION = '2.0.0';
+  const APP_VERSION = '2.0.1';
   const IS_DESKTOP = /[?&]desktop=1\b/.test(location.search);
 
   const $ = (s, el = document) => el.querySelector(s);
@@ -1235,8 +1235,10 @@
   const n2 = v => (v == null || !isFinite(v) ? '' : (Math.round(v * 100) / 100).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }));
   const money2 = v => (v == null || !isFinite(v) ? '—' : '$' + n2(v));
 
+  // 欄位裡多打的「%」「$」「元」、千分位逗號都忽略
+  const sopNum = v => num(String(v == null ? '' : v).replace(/[%％$＄元,，\s]/g, ''));
   function sopRowCalc(x) {
-    const q = num(x.qty), loss = Math.min(99, Math.max(0, num(x.loss) || 0)), sq = num(x.specQty), pr = num(x.price);
+    const q = sopNum(x.qty), loss = Math.min(99, Math.max(0, sopNum(x.loss) || 0)), sq = sopNum(x.specQty), pr = sopNum(x.price);
     const buy = q == null ? null : q / (1 - loss / 100);            // 採購份量（含損耗）
     let cost = null, err = '';
     if (buy != null && sq && pr != null) {
@@ -1250,9 +1252,9 @@
     for (const x of o.rows) {
       if (!x.name.trim()) continue;
       const c = sopRowCalc(x);
-      if (c.cost != null) cost += c.cost; else if (num(x.qty) != null) missing++;
+      if (c.cost != null) cost += c.cost; else if (sopNum(x.qty) != null) missing++;
     }
-    const net = num(o.net), gross = num(o.gross);
+    const net = sopNum(o.net), gross = sopNum(o.gross);
     const profit = net == null ? null : net - cost;
     return { cost: Math.round(cost * 100) / 100, missing, net, gross, profit, margin: net ? profit / net : null };
   }
@@ -2160,7 +2162,7 @@
         else o[f] = t.value;
         // 淨售價、含稅售價互算（5% 營業稅）
         if (f === 'net' || f === 'gross') {
-          const v = num(t.value), other = f === 'net' ? 'gross' : 'net';
+          const v = sopNum(t.value), other = f === 'net' ? 'gross' : 'net';
           o[other] = v == null ? '' : String(Math.round((f === 'net' ? v * (1 + TAX) : v / (1 + TAX)) * 100) / 100);
           const oi = $(`[data-sop="${other}"]`); if (oi && oi !== document.activeElement) oi.value = o[other];
         }
