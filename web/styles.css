@@ -339,6 +339,19 @@ body:has(.dragging) { user-select: none; -webkit-user-select: none; }
 .ring-vol { margin-top: 12px; max-width: 360px; }
 .ring-vol input[type=range] { width: 100%; accent-color: var(--accent); }
 
+/* 小抄：編輯卡片彈跳視窗 */
+.modal.cheat-modal { width: min(820px, 100%); height: min(92vh, 900px); height: min(92dvh, 900px); max-height: none; display: flex; flex-direction: column; overflow: hidden; }
+@media (max-width: 719px) {
+  .modal-back:has(.cheat-modal) { padding: 8px; }
+  .modal.cheat-modal { padding: 14px; height: calc(100dvh - 16px); }
+  .cheat-modal .hint { font-size: .8rem; margin: 4px 0; }
+}
+.cm-head { display: flex; align-items: center; gap: 8px; }
+.cm-head h3 { margin: 0; }
+.cm-scroll { flex: 1; min-height: 80px; overflow: auto; margin: 8px -4px 12px; padding: 0 4px; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
+.cm-add { margin-bottom: 0; }
+.cm-add select { flex: 1 1 220px; min-width: 0; }
+
 /* 單價表 */
 .price-head, .price-row { display: grid; grid-template-columns: 2fr 1fr .7fr .9fr 1.6fr 38px; gap: 6px; align-items: center; }
 .price-head { font-size: .8rem; color: var(--muted); font-weight: 600; padding-bottom: 6px; }
