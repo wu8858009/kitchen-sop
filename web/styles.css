@@ -413,13 +413,29 @@ body:has(.dragging) { user-select: none; -webkit-user-select: none; }
 @media print { .sop-page .print-only { display: block; } @page { size: A4; margin: 10mm; } }
 
 /* 照片辨識結果 */
-.modal.ocr-modal { width: min(1100px, 100%); }
-.ocr-grid { display: grid; grid-template-columns: 1fr 1.4fr; gap: 12px; align-items: start; }
-.ocr-grid textarea { font-family: ui-monospace, Consolas, monospace; font-size: .85rem; min-height: 320px; }
-.ocr-table { border-collapse: collapse; width: 100%; font-size: .85rem; }
-.ocr-table th, .ocr-table td { border: 1px solid var(--line); padding: 3px 6px; text-align: center; }
-.ocr-table td.l { text-align: left; }
-@media (max-width: 719px) { .ocr-grid { grid-template-columns: 1fr; } .ocr-grid textarea { min-height: 180px; } }
+.modal.ocr-modal { width: min(1500px, 100%); }
+.ocr-layout { display: grid; grid-template-columns: minmax(260px, 1fr) 2fr; gap: 14px; align-items: start; }
+.ocr-photo { position: sticky; top: 0; max-height: 72vh; overflow: auto; border: 1px solid var(--line); border-radius: 10px; cursor: zoom-in; background: #fff; }
+.ocr-photo img { display: block; width: 100%; }
+.ocr-photo.zoom { cursor: zoom-out; }
+.ocr-photo.zoom img { width: 220%; max-width: none; }
+.ocr-sum { margin: 8px 0; font-weight: 600; }
+.ocr-sum .ok, .ocr-st .ok { color: var(--ok); }
+.ocr-sum .warn, .ocr-st .warn { color: var(--red); }
+.ocr-table { border-collapse: collapse; width: 100%; min-width: 900px; font-size: .85rem; }
+.ocr-table th { font-size: .78rem; color: var(--muted); text-align: left; padding: 3px; white-space: nowrap; }
+.ocr-table td { padding: 2px 3px; border-top: 1px solid var(--line); vertical-align: top; }
+.ocr-table td.no { color: var(--muted); padding-top: 9px; }
+.ocr-table input { padding: 5px 6px; min-height: 32px; font-size: .88rem; }
+.ocr-table input.bad { border-color: var(--red); background: var(--red-soft); }
+.ocr-table .w-name { min-width: 150px; } .ocr-table .w-vendor { min-width: 90px; }
+.ocr-table .w-num { width: 70px; } .ocr-table .w-unit { width: 56px; } .ocr-table .w-loss { width: 50px; }
+.ocr-table tr.warn td { background: color-mix(in srgb, var(--red-soft) 50%, transparent); }
+.ocr-st { min-width: 170px; font-size: .8rem; }
+.ocr-st > span { font-weight: 700; font-size: 1rem; }
+.ocr-raw { margin-top: 10px; }
+.ocr-raw textarea { width: 100%; font-family: ui-monospace, Consolas, monospace; font-size: .82rem; margin: 6px 0; }
+@media (max-width: 899px) { .ocr-layout { grid-template-columns: 1fr; } .ocr-photo { position: static; max-height: 38vh; } }
 
 /* 快捷鍵說明 */
 .modal.kbd-modal { width: min(720px, 100%); }
