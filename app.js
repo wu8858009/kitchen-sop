@@ -2,7 +2,7 @@
 (() => {
   'use strict';
   const U = window.KUnits;
-  const APP_VERSION = '2.4.1';
+  const APP_VERSION = '2.5.0';
   const IS_DESKTOP = /[?&]desktop=1\b/.test(location.search);
 
   const $ = (s, el = document) => el.querySelector(s);
@@ -1699,12 +1699,90 @@
       <tbody>${p.rows.map(ocrRowHtml).join('') || '<tr><td colspan="11" class="muted">沒有辨識出食材列。可以展開下方原始文字，把每項食材整理成一行再按「重新判讀」。</td></tr>'}</tbody></table></div>`;
   }
 
+  // ---- 從表單照片裡找出「照片」欄的圖片：找最下面那條橘色標題列，在它下方找一塊顏色豐富／偏暗的方塊
+  // 回傳 { x, y, w, h }（原圖座標）或 null
+  function findPhotoBox(bmp) {
+    const W = 480, H = Math.round(bmp.height * W / bmp.width);
+    const c = document.createElement('canvas'); c.width = W; c.height = H;
+    const g = c.getContext('2d'); g.drawImage(bmp, 0, 0, W, H);
+    const px = g.getImageData(0, 0, W, H).data;
+    const hsv = i => {
+      const r = px[i] / 255, gg = px[i + 1] / 255, b = px[i + 2] / 255, mx = Math.max(r, gg, b), mn = Math.min(r, gg, b), d = mx - mn;
+      let h = 0;
+      if (d) h = mx === r ? ((gg - b) / d) % 6 : mx === gg ? (b - r) / d + 2 : (r - gg) / d + 4;
+      return [(h * 60 + 360) % 360, mx ? d / mx : 0, mx];
+    };
+    const orange = new Uint8Array(W * H), photo = new Uint8Array(W * H);
+    for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+      const [h, sat, v] = hsv((y * W + x) * 4);
+      if (h >= 22 && h <= 55 && sat > 0.45 && v > 0.45) orange[y * W + x] = 1;
+      else if (v < 0.45 || (sat > 0.3 && !(h >= 25 && h <= 60))) photo[y * W + x] = 1;   // 偏暗或有顏色（排除紙張的黃光）
+    }
+    // 橘色標題列：一整列有 30% 以上是橘色
+    const bands = [];
+    for (let y = 0; y < H; y++) {
+      let n = 0, x0 = W, x1 = 0;
+      for (let x = 0; x < W; x++) if (orange[y * W + x]) { n++; if (x < x0) x0 = x; x1 = x; }
+      if (n > W * 0.3) { const bd = bands[bands.length - 1]; if (bd && y - bd.y1 <= 2) { bd.y1 = y; bd.x0 = Math.min(bd.x0, x0); bd.x1 = Math.max(bd.x1, x1); } else bands.push({ y0: y, y1: y, x0, x1 }); }
+    }
+    const band = bands.filter(b => b.y0 < H * 0.95 && b.y0 > H * 0.4).pop();
+    if (!band) return null;
+    // 在橘色列下方、頁面範圍內，用 6×6 的格子找「大多是照片像素」的區塊
+    const CS = 6, gx0 = band.x0, gy0 = band.y1 + 2, gw = Math.floor((band.x1 - gx0) / CS), gh = Math.floor((H - gy0) / CS);
+    if (gw < 4 || gh < 4) return null;
+    const cell = new Uint8Array(gw * gh);
+    for (let cy = 0; cy < gh; cy++) for (let cx = 0; cx < gw; cx++) {
+      let n = 0;
+      for (let y = 0; y < CS; y++) for (let x = 0; x < CS; x++) n += photo[(gy0 + cy * CS + y) * W + gx0 + cx * CS + x];
+      cell[cy * gw + cx] = n > CS * CS * 0.45 ? 1 : 0;
+    }
+    // 最大的連通區塊
+    const seen = new Uint8Array(gw * gh);
+    let best = null;
+    for (let i = 0; i < gw * gh; i++) {
+      if (!cell[i] || seen[i]) continue;
+      const st = [i]; seen[i] = 1;
+      let n = 0, mx0 = gw, my0 = gh, mx1 = 0, my1 = 0;
+      while (st.length) {
+        const j = st.pop(), x = j % gw, y = (j - x) / gw;
+        n++; mx0 = Math.min(mx0, x); my0 = Math.min(my0, y); mx1 = Math.max(mx1, x); my1 = Math.max(my1, y);
+        for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+          const nx = x + dx, ny = y + dy, k = ny * gw + nx;
+          if (nx >= 0 && ny >= 0 && nx < gw && ny < gh && cell[k] && !seen[k]) { seen[k] = 1; st.push(k); }
+        }
+      }
+      // 橫跨大半頁寬的是頁面外的東西（桌面、看圖軟體的黑邊），照片欄只在左側
+      if (mx1 - mx0 + 1 > gw * 0.75) continue;
+      if (!best || n > best.n) best = { n, mx0, my0, mx1, my1 };
+    }
+    if (!best) return null;
+    const bw = best.mx1 - best.mx0 + 1, bh = best.my1 - best.my0 + 1;
+    // 太小、太細長、或不夠「實心」就不是照片
+    if (best.n < 40 || bw < 6 || bh < 6 || best.n < bw * bh * 0.5 || bw / bh > 4 || bh / bw > 4) return null;
+    const k = bmp.width / W;
+    return { x: Math.round((gx0 + best.mx0 * CS) * k), y: Math.round((gy0 + best.my0 * CS) * k), w: Math.round(bw * CS * k), h: Math.round(bh * CS * k) };
+  }
+
+  /** 表單上有貼照片：裁下來（長邊 800px）給「照片」欄用；沒有就回傳 '' */
+  async function cropFormPhoto(file) {
+    try {
+      const bmp = await createImageBitmap(file);
+      const r = findPhotoBox(bmp);
+      if (!r) return '';
+      const k = Math.min(1, 800 / Math.max(r.w, r.h)), c = document.createElement('canvas');
+      c.width = Math.round(r.w * k); c.height = Math.round(r.h * k);
+      c.getContext('2d').drawImage(bmp, r.x, r.y, r.w, r.h, 0, 0, c.width, c.height);
+      return c.toDataURL('image/jpeg', 0.8);
+    } catch (e) { return ''; }
+  }
+
   async function sopOcr(o, file) {
     if (!db.cloud) return toast('照片辨識需要先在「設定」連線 Google 雲端', 'err');
     toast('照片辨識中…（約 10～30 秒）');
-    let text, img;
+    let text, img, crop = '';
     try {
       img = await resizeImage(file, 2400);
+      crop = await cropFormPhoto(file);
       const j = await cloudCall({ a: 'ocr', image: img.split(',')[1], mime: 'image/jpeg' });
       text = j.text || '';
     } catch (e) { return toast('照片辨識失敗：' + e.message, 'err'); }
@@ -1718,12 +1796,14 @@
             <p class="hint">✓ 表示已用紙本的「採購份量」反算核對相符；⚠ 和紅框是需要確認的格子。可以直接在表格裡修改，品名、廠商會先對照單價表、食譜和其他 SOP 自動校正錯字。</p>
             <label class="fld">品項名稱<input id="ocrTitle" value="${esc(parsed.title)}" placeholder="（沒讀到，保留原本的）"></label>
             <div id="ocrTable">${ocrTableHtml(parsed)}</div>
+            ${crop ? `<div class="ocr-crop"><img src="${crop}" alt="表單上的照片">
+              <label class="ck-lbl"><input type="checkbox" id="ocrUsePhoto" ${o.photo ? '' : 'checked'}> 把表單上的這張照片放進「照片」欄${o.photo ? '（會取代目前的照片）' : ''}</label></div>` : ''}
             ${parsed.steps.length || parsed.notes.length ? `<p class="small muted">另外讀到操作步驟 ${parsed.steps.length} 行、注意事項 ${parsed.notes.length} 行，會一起填入。</p>` : ''}
             <details class="ocr-raw"><summary>辨識出的原始文字</summary>
               <textarea id="ocrText" rows="12" spellcheck="false">${esc(text)}</textarea>
               <button class="btn sm" id="ocrReparse">重新判讀（會取代上面表格）</button></details>
           </div></div>`,
-      buttons: [{ label: '取消', value: null }, { label: '填入', cls: 'primary', value: () => parsed }],
+      buttons: [{ label: '取消', value: null }, { label: '填入', cls: 'primary', value: m => { const u = m.querySelector('#ocrUsePhoto'); parsed.photo = u && u.checked ? crop : ''; return parsed; } }],
     });
     const md = $('#modal .modal');
     if (md) {
@@ -1756,6 +1836,7 @@
     const cur = getSop(o.id);
     if (!cur) return;
     if (res.title && (!cur.title.trim() || cur.title === '未命名 SOP')) cur.title = res.title;
+    if (res.photo) cur.photo = res.photo;
     cur.rows = cur.rows.filter(x => x.name.trim() || x.qty);
     for (const r of res.rows) {
       const x = normSopRow({ name: r.name, qty: r.qty, unit: r.unit, vendor: r.vendor, specQty: r.specQty, specUnit: r.specUnit, price: r.price, loss: r.loss });
