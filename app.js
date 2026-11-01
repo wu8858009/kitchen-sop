@@ -2,7 +2,7 @@
 (() => {
   'use strict';
   const U = window.KUnits;
-  const APP_VERSION = '2.4.0';
+  const APP_VERSION = '2.4.1';
   const IS_DESKTOP = /[?&]desktop=1\b/.test(location.search);
 
   const $ = (s, el = document) => el.querySelector(s);
@@ -1500,47 +1500,88 @@
     return row;
   }
 
-  // Google 的 OCR 常把表格「一欄一欄」讀出來（品名、數量、廠商分在不同行）：改依出現順序配對——
-  // 品名後面的數字是使用份量；單位後面的字是廠商；其他「數量＋單位」是規格；% 是耗損；200.00 這種採購份量會自動算，略過
+  // Google 的 OCR 常把表格「一欄一欄」、甚至打散順序讀出來。依欄位的特徵與出現順序重組：
+  //  品名 → 依序排隊等「使用份量」；同一行「單位 廠商」的字是廠商；連在一起的「份份份」拆成單位；
+  //  連號的小整數是列號 NO；所有品名都有份量之後的數字依序是「規格」→（進價）→「採購份量」；兩位小數是採購份量。
   function parseOcrStream(lines) {
+    const UNIT_G = new RegExp(OCR_UNITS, 'gi');
     const toks = [];
     lines.forEach((raw, ln) => {
-      const str = ocrHalf(raw).replace(/[|｜□口]/g, ' ').replace(/(\d)\s*%/g, '$1% ')
+      const str = ocrHalf(raw).replace(/[|｜□口【】\[\]]/g, ' ').replace(/(\d)\s*%/g, '$1% ')
         .replace(new RegExp('(\\d)\\s*(' + OCR_UNITS + ')(?![A-Za-z])', 'gi'), '$1 $2 ');
-      str.split(/\s+/).filter(Boolean).forEach(t => toks.push({ t, ln }));
+      str.split(/\s+/).filter(Boolean).forEach((t, k) => {
+        const us = /\d/.test(t) ? null : t.match(UNIT_G);
+        if (us && us.length >= 2 && t.replace(UNIT_G, '').length <= 1) us.forEach(u => toks.push({ t: u, ln, k: 9 })); // 「份份份」
+        else toks.push({ t, ln, k });
+      });
     });
-    const items = [], vendors = [], specs = [], prices = [], losses = [], buys = [];
     const isUnit = t => OCR_UNIT_RE.test(t || '');
-    let cur = null, afterUnit = false, loneUnit = '', nameLine = -1;
+    const isName = t => !ocrNum(t) && !isUnit(t) && !/%$/.test(t) && /[\u3400-\u9fffA-Za-z]/.test(t) && !OCR_HEAD_RE.test(t);
+    // 列號 NO：行首整數後面接品名；或單獨一行的整數，下一行是品名／是它的下一號；或 3 行以上連號
+    const byLine = new Map();
+    toks.forEach(x => { if (!byLine.has(x.ln)) byLine.set(x.ln, []); byLine.get(x.ln).push(x); });
+    const lns = [...byLine.keys()];
+    const solo = ln => { const a = byLine.get(ln); return a && a.length === 1 && /^\d+$/.test(a[0].t) && +a[0].t <= 60 ? +a[0].t : null; };
+    const nameFirst = ln => { const a = byLine.get(ln) || []; return a.length > 0 && isName(a[0].t); };      // 這行以品名開頭
+    const noName = (ln, v) => { const a = byLine.get(ln) || []; return a.length > 1 && /^\d+$/.test(a[0].t) && +a[0].t === v && isName(a[1].t); }; // 「v 品名」
+    lns.forEach(ln => { const a = byLine.get(ln); if (/^\d+$/.test(a[0].t) && +a[0].t <= 60 && a[1] && isName(a[1].t)) a[0].no = true; });
+    for (let j = lns.length - 1; j >= 0; j--) {      // 由下往上，才能沿著「3 → 4 → 品名」這種連號判斷
+      const a = byLine.get(lns[j]), v = solo(lns[j]);
+      if (v == null) continue;
+      const nx = byLine.get(lns[j + 1]);
+      if (nameFirst(lns[j + 1]) || noName(lns[j + 1], v + 1) || (solo(lns[j + 1]) === v + 1 && nx[0].no)) a[0].no = true;
+      let run = 1;
+      for (let d = 1; solo(lns[j - d]) === v - d; d++) run++;
+      for (let d = 1; solo(lns[j + d]) === v + d; d++) run++;
+      if (run >= 3) a[0].no = true;
+    }
+
+    const items = [], pend = [], unitQ = [], vendQ = [], trail = [], specUnitQ = [], buys = [], losses = [];
+    let last = '';
     for (let i = 0; i < toks.length; i++) {
-      const { t, ln } = toks[i], next = (toks[i + 1] || {}).t;
-      if (/^\d+(\.\d+)?%$/.test(t)) { losses.push(t.slice(0, -1)); afterUnit = false; loneUnit = ''; continue; }
+      const x = toks[i], t = x.t, prev = toks[i - 1];
+      if (x.no) continue;
+      if (/^\d+(\.\d+)?%$/.test(t)) { losses.push(t.slice(0, -1)); continue; }
       if (ocrNum(t)) {
-        const n = t.replace(/,/g, '');
-        if (isUnit(next)) {
-          i++;
-          afterUnit = true; loneUnit = '';
-          if (/\.\d\d$/.test(n)) { buys.push(n); continue; } // 採購份量：拿來核對
-          if (cur && !cur.qty) { cur.qty = n; cur.unit = next; } else specs.push([n, next]);
-          continue;
-        }
-        if (cur && !cur.qty) cur.qty = n;
-        else if (loneUnit) specs.push([n, loneUnit]);       // 「公克 1000」
-        else if (!(/^\d+$/.test(n) && +n <= 60)) prices.push(n); // 60 以下的整數多半是列號 NO
-        afterUnit = false; loneUnit = '';
+        const n = t.replace(/,/g, ''), nx = toks[i + 1], nx2 = toks[i + 2];
+        // 下一個是單位就配成「數量＋單位」；但換行後是「單位 廠商」那一欄，就不是這個數量的單位
+        const u = nx && isUnit(nx.t) && !(nx.ln !== x.ln && nx2 && nx2.ln === nx.ln && isName(nx2.t)) ? nx.t : '';
+        if (u) i++;
+        if (/\.\d\d$/.test(n)) { buys.push(n); last = 'buy'; continue; }          // 採購份量
+        if (!items.length) continue;                                             // 第一個品名之前的數字
+        if (pend.length) { const it = pend.shift(); it.qty = n; if (u) it.unit = u; last = 'qty'; x.owner = it; if (u) toks[i].owner = it; continue; }
+        trail.push({ n, u }); last = 'trail'; continue;
+      }
+      if (isUnit(t)) {
+        if (last === 'trail') specUnitQ.push(t); else if (last !== 'buy') unitQ.push(t);
         continue;
       }
-      if (isUnit(t)) { afterUnit = true; loneUnit = t; continue; }
-      loneUnit = '';
-      if (OCR_HEAD_RE.test(t) || !/[\u3400-\u9fffA-Za-z]/.test(t)) { afterUnit = false; continue; }
-      if (afterUnit) { vendors.push(t); afterUnit = false; continue; }
-      if (cur && !cur.qty && nameLine === ln) cur.name += ' ' + t;   // 同一行的品名接起來（例如「M9 澳洲和牛…」）
-      else { cur = { name: t, qty: '', unit: '' }; items.push(cur); nameLine = ln; }
+      if (!isName(t)) continue;
+      if (prev && isUnit(prev.t) && prev.ln === x.ln) {                           // 同一行「單位 廠商」
+        if (prev.owner && !prev.owner.vendor) prev.owner.vendor = t; else vendQ.push(t);
+        last = 'vendor'; continue;
+      }
+      const cur = items[items.length - 1];
+      if (cur && !cur.qty && prev && prev.ln === x.ln && isName(prev.t) && !prev.no) { cur.name += ' ' + t; continue; } // 「M9 澳洲和牛…」
+      const it = { name: t, qty: '', unit: '', vendor: '' };
+      items.push(it); pend.push(it); last = 'name';
     }
-    return items.filter(it => it.qty).map((it, k) => {
-      const sp = specs[k] || [];
-      const unit = fixUnit(it.unit || sp[1] || '公克');
-      return { name: it.name, qty: it.qty, unit, vendor: vendors[k] || '', specQty: sp[0] || '', specUnit: fixUnit(sp[1] || unit), price: prices[k] || '', loss: losses[k] || '', buy: buys[k] || '' };
+    const rows = items.filter(it => it.qty);
+    const N = rows.length;
+    rows.forEach(it => { if (!it.unit && unitQ.length) it.unit = unitQ.shift(); });
+    rows.forEach(it => { if (!it.vendor && vendQ.length) it.vendor = vendQ.shift(); });
+    const common = (() => { const c = {}; rows.forEach(it => { if (it.unit) c[it.unit] = (c[it.unit] || 0) + 1; }); return Object.keys(c).sort((p2, q2) => c[q2] - c[p2])[0] || '公克'; })();
+    trail.forEach(e => { if (!e.u && specUnitQ.length) e.u = specUnitQ.shift(); });
+    const specs = trail.slice(0, N), rest = trail.slice(N).map(e => e.n);
+    let prices = [];
+    const need = Math.max(0, N - buys.length);
+    if (rest.length >= N + need && need) { prices = rest.slice(0, N); buys.push(...rest.slice(N, N + need)); }
+    else if (need && rest.length === need) buys.push(...rest);
+    else if (rest.length >= N) prices = rest.slice(0, N);
+    return rows.map((it, k) => {
+      const unit = fixUnit(it.unit || common), sp = specs[k] || {};
+      return { name: it.name, qty: it.qty, unit, vendor: it.vendor, specQty: sp.n || '', specUnit: fixUnit(sp.u || unit), price: prices[k] || '',
+        loss: losses.length === N ? losses[k] : '', buy: buys.length === N ? buys[k] : '' };
     });
   }
 
@@ -1556,13 +1597,15 @@
       if (/成本合計|淨售價|含稅售價/.test(line)) { mode = 'none'; continue; }
       if (!out.title && /\d{4}[.\/-]\d{1,2}/.test(line) && !/考核|補考/.test(line) && line.length <= 40) { out.title = ocrHalf(line).replace(/\s+/g, ''); continue; }
       if (mode === 'table') { tableLines.push(line); const r = parseOcrLine(line); if (r) out.rows.push(r); }
+      if (mode === 'table' && /^(NO|食材明細)$|食材明細/i.test(line) && !out.headAt) out.headAt = tableLines.length;
       else if (mode === 'steps' || mode === 'notes') {
         const t = line.replace(/^\d{1,2}[.、)\s]+/, '').trim();
         if (/[\u3400-\u9fff]/.test(t) && !/^\d+$/.test(t)) out[mode].push(t);
       }
     }
     // 一行一項的寫法用逐行解析；讀不出來（表格被拆成一欄一欄）就改用順序配對，取讀到較多項的
-    const stream = parseOcrStream(tableLines);
+    const stream = parseOcrStream(out.headAt ? tableLines.slice(out.headAt) : tableLines);
+    delete out.headAt;
     if (stream.length > out.rows.length) out.rows = stream;
     return out;
   }
