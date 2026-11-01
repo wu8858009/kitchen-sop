@@ -2,7 +2,7 @@
 (() => {
   'use strict';
   const U = window.KUnits;
-  const APP_VERSION = '1.8.0';
+  const APP_VERSION = '1.8.1';
   const IS_DESKTOP = /[?&]desktop=1\b/.test(location.search);
 
   const $ = (s, el = document) => el.querySelector(s);
@@ -285,11 +285,15 @@
     if (q == null) return { state: 'unit', p };
     return { state: 'ok', cost: q / p.perQty * p.price };
   }
+  // 只填名稱（數量、單位、備註都空白）的食材列當成小標題，例如「出餐」
+  const isHead = i => !!String(i.name || '').trim() && (i.qty == null || String(i.qty).trim() === '') && !String(i.unit || '').trim() && !String(i.note || '').trim();
+  const ingCount = r => r.ingredients.filter(i => !isHead(i)).length;
+
   function recipeCost(r, mult, pm) {
     pm = pm || priceMap();
     let total = 0, missing = 0;
     for (const i of r.ingredients) {
-      if (!i.name.trim()) continue;
+      if (!i.name.trim() || isHead(i)) continue;
       const c = costOf(pm, i.name, i.qty == null ? null : i.qty * mult, i.unit);
       if (c.state === 'ok') total += c.cost;
       else if (c.state !== 'none') missing++;
@@ -421,7 +425,7 @@
         <div class="rcard-body">
           ${r.category ? `<div class="cat">${esc(r.category)}</div>` : ''}
           <div class="rname">${esc(r.name)}</div>
-          <div class="muted small">${fmt(r.yieldQty)} ${esc(r.yieldUnit)} · ${r.ingredients.length} 食材 · ${r.steps.length} 步驟${mins ? ` · 約 ${fmt(mins)} 分` : ''}</div>
+          <div class="muted small">${fmt(r.yieldQty)} ${esc(r.yieldUnit)} · ${ingCount(r)} 食材 · ${r.steps.length} 步驟${mins ? ` · 約 ${fmt(mins)} 分` : ''}</div>
           ${c.total > 0 ? `<div class="small cost-line">每${esc(r.yieldUnit)} ${money(c.perUnit)}${c.missing ? `<span class="muted">（${c.missing} 項無單價）</span>` : ''}</div>` : ''}
         </div></a>`;
     }).join('');
@@ -453,7 +457,7 @@
         <div>
           ${r.category ? `<div class="cat">${esc(r.category)}</div>` : ''}
           <h1>${esc(r.name)}</h1>
-          <div class="muted">基準份量 ${fmt(r.yieldQty)} ${esc(r.yieldUnit)} · ${r.ingredients.length} 項食材 · ${r.steps.length} 個步驟${mins ? ` · 計時合計約 ${fmt(mins)} 分鐘` : ''}</div>
+          <div class="muted">基準份量 ${fmt(r.yieldQty)} ${esc(r.yieldUnit)} · ${ingCount(r)} 項食材 · ${r.steps.length} 個步驟${mins ? ` · 計時合計約 ${fmt(mins)} 分鐘` : ''}</div>
         </div>
       </div>
 
@@ -504,10 +508,11 @@
 
     let html = '<table class="ing-table"><tbody>', lastGroup = null;
     for (const i of r.ingredients) {
-      if (i.group.trim() !== (lastGroup || '') && (i.group.trim() || lastGroup)) {
+      if (i.group.trim() !== (lastGroup || '') && (i.group.trim() || lastGroup) && !(isHead(i) && !i.group.trim())) { // 小標題本身就是分段，不再加「其他」
         html += `<tr class="grp"><td colspan="6">${esc(i.group.trim() || '其他')}</td></tr>`;
       }
       lastGroup = i.group.trim();
+      if (isHead(i)) { html += `<tr class="grp sub"><td colspan="6">${esc(i.name)}</td></tr>`; continue; }
       const q = i.qty == null ? null : i.qty * mult;
       const d = U.display(q, i.unit, mode);
       const c = costOf(pm, i.name, q, i.unit);
@@ -695,16 +700,16 @@
       <section class="card">
         <div class="sec-head"><h2>食材</h2><div class="spacer"></div><button class="btn sm" data-act="bulk" data-list="ingredients">批次貼上</button></div>
         <div class="ed-head ing"><span>分組</span><span>食材名稱</span><span>數量</span><span>單位</span><span>備註</span><span></span></div>
-        <div class="ed-list">${r.ingredients.map((i, k) => `<div class="ed-row ing">
+        <div class="ed-list">${r.ingredients.map((i, k) => `<div class="ed-row ing${i._head || isHead(i) ? ' is-head' : ''}">
           <input class="g" data-bind="ingredients.${k}.group" value="${esc(i.group)}" placeholder="分組" list="dl-grp">
-          <input class="n" data-bind="ingredients.${k}.name" value="${esc(i.name)}" placeholder="食材名稱" list="dl-names">
+          <input class="n" data-bind="ingredients.${k}.name" value="${esc(i.name)}" placeholder="${i._head ? '小標題（例如：出餐）' : '食材名稱'}" list="dl-names">
           <input class="q" data-bind="ingredients.${k}.qty" value="${esc(i.qty)}" placeholder="數量" inputmode="decimal">
           <input class="u" data-bind="ingredients.${k}.unit" value="${esc(i.unit)}" placeholder="單位" list="dl-units">
           <input class="nt" data-bind="ingredients.${k}.note" value="${esc(i.note)}" placeholder="備註（切丁、適量…）">
           ${btns('ingredients', k, r.ingredients.length)}
           ${V ? `<div class="vi-row">${viIn(`ingredients.${k}.groupVi`, i.groupVi, '分組（越南文）').replace('class="vi-in"', 'class="vi-in g"')}${viIn(`ingredients.${k}.nameVi`, i.nameVi, '食材名稱（越南文）').replace('class="vi-in"', 'class="vi-in n"')}${viIn(`ingredients.${k}.noteVi`, i.noteVi, '備註（越南文）').replace('class="vi-in"', 'class="vi-in nt"')}</div>` : ''}</div>`).join('')}</div>
-        <button class="btn" data-act="add" data-list="ingredients">＋ 新增食材</button>
-        <p class="hint">數量可填 1.5、1/2、1 1/2；留空代表「適量」，不參與倍數計算。分組可區分「醃料」「醬汁」等。</p>
+        <div class="btn-row"><button class="btn" data-act="add" data-list="ingredients">＋ 新增食材</button><button class="btn" data-act="add-head">＋ 小標題</button></div>
+        <p class="hint">數量可填 1.5、1/2、1 1/2；留空代表「適量」，不參與倍數計算。分組可區分「醃料」「醬汁」等。只填名稱、數量／單位／備註都空白的列會當成小標題（例如「出餐」），不計成本。</p>
       </section>
 
       <section class="card">
@@ -868,7 +873,7 @@
       const r = getRecipe(p.recipeId);
       for (const i of r.ingredients) {
         const k = normName(i.name);
-        if (!k) continue;
+        if (!k || isHead(i)) continue;
         let e = map.get(k);
         if (!e) map.set(k, (e = { name: i.name.trim(), parts: [], from: new Set(), loose: false }));
         e.from.add(r.name);
@@ -1013,8 +1018,9 @@
       let last = null, rows = '';
       for (const i of r.ingredients) {
         const g = i.group.trim();
-        if (g !== (last || '') && (g || last)) rows += `<div class="cc-grp">${g ? bv(g, i.groupVi) : bt('其他')}</div>`;
+        if (g !== (last || '') && (g || last) && !(isHead(i) && !g)) rows += `<div class="cc-grp">${g ? bv(g, i.groupVi) : bt('其他')}</div>`;
         last = g;
+        if (isHead(i)) { rows += `<div class="cc-grp cc-sub">${bv(i.name, i.nameVi || trVi(i.name))}</div>`; continue; }
         const d = U.display(i.qty == null ? null : i.qty * mult, i.unit, mode);
         rows += `<div class="cc-ing"><span>${bv(i.name, i.nameVi || trVi(i.name))}</span><b>${bt(d.text)}</b></div>`;
       }
@@ -1122,7 +1128,7 @@
   }
   function viewPrices() {
     const used = new Map();
-    for (const r of db.recipes) for (const i of r.ingredients) { const k = normName(i.name); if (k) used.set(k, (used.get(k) || 0) + 1); }
+    for (const r of db.recipes) for (const i of r.ingredients) { const k = normName(i.name); if (k && !isHead(i)) used.set(k, (used.get(k) || 0) + 1); }
     const q = normName(priceFilter);
     const rows = db.prices.map((p, k) => ({ p, k })).filter(({ p }) => !q || normName(p.name).includes(q));
     return `<div class="page">
@@ -1568,6 +1574,13 @@
         draft = null; location.hash = back; break;
       }
       case 'save-recipe': saveDraft(); break;
+      case 'add-head': {
+        const arr = draft.r.ingredients;
+        arr.push({ ...blankIng(arr.length ? arr[arr.length - 1].group : ''), _head: true });
+        draft.dirty = true;
+        rerenderEdit(`[data-bind="ingredients.${arr.length - 1}.name"]`);
+        break;
+      }
       case 'add': {
         const list = el.dataset.list, arr = draft.r[list];
         arr.push(list === 'ingredients' ? blankIng(arr.length ? arr[arr.length - 1].group : '') : blankStep());
@@ -1626,7 +1639,7 @@
         let n = 0;
         for (const r of db.recipes) for (const i of r.ingredients) {
           const k = normName(i.name);
-          if (k && !have.has(k)) { have.add(k); db.prices.push(normPrice({ name: i.name.trim(), perQty: 1, perUnit: U.lookup(i.unit) ? (U.lookup(i.unit).dim === 'mass' ? 'kg' : 'L') : i.unit })); n++; }
+          if (k && !isHead(i) && !have.has(k)) { have.add(k); db.prices.push(normPrice({ name: i.name.trim(), perQty: 1, perUnit: U.lookup(i.unit) ? (U.lookup(i.unit).dim === 'mass' ? 'kg' : 'L') : i.unit })); n++; }
         }
         if (n) db.pricesUpdatedAt = Date.now();
         persist(); render(); toast(n ? `已帶入 ${n} 項食材，請填寫價格` : '所有食材都已在單價表中');
