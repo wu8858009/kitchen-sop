@@ -2,7 +2,7 @@
 (() => {
   'use strict';
   const U = window.KUnits;
-  const APP_VERSION = '1.9.0';
+  const APP_VERSION = '1.9.1';
   const IS_DESKTOP = /[?&]desktop=1\b/.test(location.search);
 
   const $ = (s, el = document) => el.querySelector(s);
@@ -963,12 +963,10 @@
     if (it) it.mult = mult; else c.items.push({ type: 'recipe', recipeId: id, mult });
   }
 
-  function viewCheat() {
+  // 卡片清單（在「編輯卡片」彈跳視窗裡）
+  function cheatItemsHtml() {
     const c = cheatCfg();
-    const avail = [...db.recipes].sort((a, b) => a.name.localeCompare(b.name, 'zh-Hant'));
-    const opt = (k, v, t) => `<option value="${v}" ${c[k] === v ? 'selected' : ''}>${t}</option>`;
-    const box = (k, t) => `<label class="ck-lbl"><input type="checkbox" data-cheat-opt="${k}" ${c[k] ? 'checked' : ''}> ${t}</label>`;
-    const items = c.items.map((it, k) => {
+    return c.items.map((it, k) => {
       const tools = `<button class="icon" data-act="cheat-mv" data-k="${k}" data-d="-1" title="上移">↑</button><button class="icon" data-act="cheat-mv" data-k="${k}" data-d="1" title="下移">↓</button>
         <button class="icon danger" data-act="cheat-rm" data-k="${k}" title="移除">✕</button>`;
       if (it.type === 'note') return `<div class="cheat-item note">
@@ -978,22 +976,53 @@
       return `<div class="cheat-item"><div class="ci-row">${DRAG}<span class="pname">${esc(r.name)}</span>
         <label class="inline">×<input type="text" autocomplete="off" placeholder="2 或 /3" data-cheat-mult="${k}" value="${multText(it.mult)}"></label>
         <span class="muted small" id="cy${k}">${fmt(r.yieldQty * it.mult)} ${esc(r.yieldUnit)}</span>${tools}</div></div>`;
-    }).join('');
-    return `<div class="page cheat-page">
-      <div class="page-head no-print"><h1 class="head-title">小抄</h1><div class="spacer"></div>
-        ${c.items.length ? '<button class="btn primary" data-act="cheat-print">🖨 列印小抄</button><button class="btn ghost" data-act="cheat-clear">清空</button>' : ''}</div>
-      <p class="muted no-print">把食譜依倍數濃縮成精簡卡片（份量、食材用量、重點步驟），列印後可剪下貼在工作台；也能加自訂文字卡。</p>
-      <section class="card no-print">
-        <h2>卡片</h2>
-        ${c.items.length > 1 ? '<p class="hint">按住 ⠿ 拖曳可以調整卡片順序（下方預覽的卡片也可以直接拖曳）。</p>' : ''}
-        <div class="cheat-items">${items || '<p class="muted">尚未加入卡片。</p>'}</div>
-        <div class="plan-add">
+    }).join('') || '<p class="muted">尚未加入卡片。</p>';
+  }
+
+  function openCheatEditor() {
+    const avail = [...db.recipes].sort((a, b) => a.name.localeCompare(b.name, 'zh-Hant'));
+    const m = $('#modal');
+    m.innerHTML = `<div class="modal-back" data-cheat-back><div class="modal cheat-modal" id="cheatEditor" role="dialog" aria-modal="true">
+        <div class="cm-head"><h3>編輯小抄卡片</h3><div class="spacer"></div><button class="icon" data-act="cheat-close" title="關閉">✕</button></div>
+        <p class="hint">把食譜依倍數濃縮成精簡卡片（份量、食材用量、重點步驟），列印後可剪下貼在工作台；也能加自訂文字卡。按住 ⠿ 拖曳可以調整順序。</p>
+        <div class="cm-scroll"><div class="cheat-items" id="cheatItems"></div></div>
+        <div class="plan-add cm-add">
           ${avail.length ? `<select id="cheatAdd">${avail.map(r => `<option value="${esc(r.id)}">${esc(r.name)}</option>`).join('')}</select>
           <button class="btn primary" data-act="cheat-add">＋ 食譜</button>` : ''}
           <button class="btn" data-act="cheat-note">＋ 文字卡</button>
           ${db.plan.length ? '<button class="btn" data-act="cheat-from-plan">從備料單匯入</button>' : ''}
         </div>
-      </section>
+        <div class="modal-btns"><button class="btn primary" data-act="cheat-close">完成</button></div>
+      </div></div>`;
+    m.classList.add('open');
+    $('#cheatItems').innerHTML = cheatItemsHtml();
+    m.onkeydown = e => { if (e.key === 'Escape') closeCheatEditor(); };
+  }
+  function closeCheatEditor() {
+    const m = $('#modal');
+    if (!$('#cheatEditor')) return;
+    m.classList.remove('open'); m.innerHTML = ''; m.onkeydown = null;
+    if (route.name === 'cheat') render();
+  }
+  /** 卡片有增減或換順序：更新彈跳視窗裡的清單與頁面上的預覽 */
+  function refreshCheat(focusLastNote) {
+    const box = $('#cheatItems');
+    if (box) {
+      box.innerHTML = cheatItemsHtml();
+      if (focusLastNote) { const t = $$('#cheatItems [data-cheat-note][data-f="title"]').pop(); if (t) t.focus(); }
+    }
+    if (route.name === 'cheat') { const y = window.scrollY; render(); window.scrollTo(0, y); }
+  }
+
+  function viewCheat() {
+    const c = cheatCfg();
+    const opt = (k, v, t) => `<option value="${v}" ${c[k] === v ? 'selected' : ''}>${t}</option>`;
+    const box = (k, t) => `<label class="ck-lbl"><input type="checkbox" data-cheat-opt="${k}" ${c[k] ? 'checked' : ''}> ${t}</label>`;
+    return `<div class="page cheat-page">
+      <div class="page-head no-print"><h1 class="head-title">小抄</h1><div class="spacer"></div>
+        <button class="btn" data-act="cheat-edit">📋 編輯卡片（${c.items.length}）</button>
+        ${c.items.length ? '<button class="btn primary" data-act="cheat-print">🖨 列印小抄</button><button class="btn ghost" data-act="cheat-clear">清空</button>' : ''}</div>
+      ${c.items.length ? '' : `<div class="empty no-print"><p>還沒有小抄卡片。</p><button class="btn primary" data-act="cheat-edit">＋ 加入卡片</button></div>`}
       <section class="card no-print">
         <h2>內容與版面</h2>
         <div class="cheat-opts">
@@ -1020,8 +1049,9 @@
     e.preventDefault();
     item.classList.add('dragging');
     const move = ev => {
-      const edge = 60, h = window.innerHeight;
-      if (ev.clientY < edge) window.scrollBy(0, -12); else if (ev.clientY > h - edge) window.scrollBy(0, 12);
+      const sc = box.closest('.cm-scroll'); // 彈跳視窗裡捲動清單本身
+      if (sc) { const b = sc.getBoundingClientRect(); if (ev.clientY < b.top + 40) sc.scrollTop -= 12; else if (ev.clientY > b.bottom - 40) sc.scrollTop += 12; }
+      else { const edge = 60, h = window.innerHeight; if (ev.clientY < edge) window.scrollBy(0, -12); else if (ev.clientY > h - edge) window.scrollBy(0, 12); }
       const el = document.elementFromPoint(ev.clientX, ev.clientY);
       const over = el && el.closest(sel);
       if (!over || over === item || over.parentNode !== box) return;
@@ -1044,9 +1074,9 @@
       const a = cheatCfg().items, [x] = a.splice(from, 1);
       a.splice(to, 0, x);
       persist();
-      const y = window.scrollY;
-      render();
-      window.scrollTo(0, y);
+      const sc = box.closest('.cm-scroll'), st = sc && sc.scrollTop;
+      refreshCheat();
+      if (sc) sc.scrollTop = st;
     };
     window.addEventListener('pointermove', move);
     window.addEventListener('pointerup', up);
@@ -1599,6 +1629,7 @@
   }
 
   // ---------------------------------------------------------------- 事件
+  document.addEventListener('click', e => { if (e.target.matches && e.target.matches('[data-cheat-back]')) closeCheatEditor(); });
   document.addEventListener('click', async e => {
     const el = e.target.closest('[data-act]');
     if (!el || el.tagName === 'SELECT' || (el.type === 'file')) return;
@@ -1696,21 +1727,23 @@
         render(); toast('已移除自訂音檔'); break;
       // 小抄
       case 'cheat-from-recipe': cheatAddRecipe(el.dataset.id, vs(el.dataset.id).mult); persist(); location.hash = '#/cheat'; break;
-      case 'cheat-from-plan': db.plan.forEach(p => cheatAddRecipe(p.recipeId, p.mult)); persist(); if (route.name === 'cheat') render(); else location.hash = '#/cheat'; break;
+      case 'cheat-from-plan': db.plan.forEach(p => cheatAddRecipe(p.recipeId, p.mult)); persist(); if (route.name === 'cheat') refreshCheat(); else location.hash = '#/cheat'; break;
+      case 'cheat-edit': openCheatEditor(); break;
+      case 'cheat-close': closeCheatEditor(); break;
       case 'cheat-add': {
         const id = $('#cheatAdd').value;
         if (cheatCfg().items.some(x => x.recipeId === id)) { toast('這道菜已經在小抄裡了'); break; }
-        cheatAddRecipe(id, 1); persist(); render(); break;
+        cheatAddRecipe(id, 1); persist(); refreshCheat(); break;
       }
-      case 'cheat-note': cheatCfg().items.push({ type: 'note', title: '', text: '' }); persist(); render(); { const t = $$('[data-cheat-note][data-f="title"]').pop(); if (t) t.focus(); } break;
-      case 'cheat-rm': cheatCfg().items.splice(+el.dataset.k, 1); persist(); render(); break;
+      case 'cheat-note': cheatCfg().items.push({ type: 'note', title: '', text: '' }); persist(); refreshCheat(true); break;
+      case 'cheat-rm': cheatCfg().items.splice(+el.dataset.k, 1); persist(); refreshCheat(); break;
       case 'cheat-mv': {
         const a = cheatCfg().items, k = +el.dataset.k, j = k + +el.dataset.d;
-        if (j >= 0 && j < a.length) { [a[k], a[j]] = [a[j], a[k]]; persist(); render(); }
+        if (j >= 0 && j < a.length) { [a[k], a[j]] = [a[j], a[k]]; persist(); refreshCheat(); }
         break;
       }
       case 'cheat-print': if (IS_MOBILE) cheatPdf(); else { flush(); window.print(); } break;
-      case 'cheat-clear': if (await confirmBox('清空小抄', '確定要清空所有小抄卡片嗎？（食譜不會被刪除）', '清空', true)) { cheatCfg().items = []; persist(); render(); } break;
+      case 'cheat-clear': if (await confirmBox('清空小抄', '確定要清空所有小抄卡片嗎？（食譜不會被刪除）', '清空', true)) { cheatCfg().items = []; persist(); refreshCheat(); } break;
       case 'plan-clear': if (await confirmBox('清空備料單', '確定要清空備料單嗎？（食譜不會被刪除）', '清空', true)) { db.plan = []; persist(); render(); } break;
       // 單價
       case 'price-add': priceFilter = ''; db.prices.push(normPrice({})); db.pricesUpdatedAt = Date.now(); persist(); render(); { const ins = $$('[data-price$=".name"]'); ins.length && ins[ins.length - 1].focus(); } break;
