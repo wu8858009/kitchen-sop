@@ -206,7 +206,7 @@ function load_(ss) {
     const k = str_(r[0]), o = json_(str_(r[2]), null);
     if (!k || !o) return;
     inv = inv || { items: [], itemsAt: 0, weeks: {} };
-    if (k === "品項") { inv.items = o.items || []; inv.itemsAt = Number(o.itemsAt) || 0; inv.allNames = o.allNames || {}; }
+    if (k === "品項") { inv.items = o.items || []; inv.itemsAt = Number(o.itemsAt) || 0; inv.allNames = o.allNames || {}; inv.allCodes = o.allCodes || {}; }
     else inv.weeks[k] = o;
   });
 
@@ -277,7 +277,7 @@ function save_(ss, req) {
     // 舊版 App 不會送 inv：保留原本的盤點訂貨
     if (d.inv && typeof d.inv === "object") {
       const iv = d.inv, weeks = iv.weeks || {};
-      const invRows = [["品項", date_(iv.itemsAt), JSON.stringify({ items: iv.items || [], itemsAt: iv.itemsAt || 0, allNames: iv.allNames || {} })]];
+      const invRows = [["品項", date_(iv.itemsAt), JSON.stringify({ items: iv.items || [], itemsAt: iv.itemsAt || 0, allNames: iv.allNames || {}, allCodes: iv.allCodes || {} })]];
       Object.keys(weeks).sort().reverse().forEach((k) => {
         const w = weeks[k];
         let at = 0;

@@ -2,7 +2,7 @@
 (() => {
   'use strict';
   const U = window.KUnits;
-  const APP_VERSION = '2.6.0';
+  const APP_VERSION = '2.6.1';
   const IS_DESKTOP = /[?&]desktop=1\b/.test(location.search);
 
   const $ = (s, el = document) => el.querySelector(s);
@@ -1474,8 +1474,8 @@
     v = v && typeof v === 'object' ? v : {};
     const has = Array.isArray(v.items);
     // 預設品項用固定 id，各裝置還沒改過清單時填的資料才對得起來
-    const items = has ? v.items.map(x => ({ id: String(x.id || uid()), name: String(x.name || ''), unit: String(x.unit || '') }))
-      : INV_DEFAULT.split('|').map((l, i) => { const [name, unit] = l.split(' '); return { id: 'inv' + (i + 1), name, unit }; });
+    const items = has ? v.items.map(x => ({ id: String(x.id || uid()), name: String(x.name || ''), unit: String(x.unit || ''), code: String(x.code || '') }))
+      : INV_DEFAULT.split('|').map((l, i) => { const [name, unit] = l.split(' '); return { id: 'inv' + (i + 1), name, unit, code: '' }; });
     const weeks = {};
     if (v.weeks && typeof v.weeks === 'object') for (const [k, w] of Object.entries(v.weeks)) {
       if (!/^\d{4}-\d\d-\d\d$/.test(k) || !w || typeof w !== 'object') continue;
@@ -1484,7 +1484,8 @@
       weeks[k] = o;
     }
     const allNames = v.allNames && typeof v.allNames === 'object' ? { ...v.allNames } : {};
-    return { items, itemsAt: has ? +v.itemsAt || 0 : 0, weeks, allNames };
+    const allCodes = v.allCodes && typeof v.allCodes === 'object' ? { ...v.allCodes } : {};
+    return { items, itemsAt: has ? +v.itemsAt || 0 : 0, weeks, allNames, allCodes };
   }
   function mergeInv(a, b) {
     const weeks = {};
@@ -1493,7 +1494,7 @@
       for (const [id, r] of Object.entries(w)) if (!o[id] || r.at >= o[id].at) o[id] = r;
     }
     const items = a.itemsAt >= b.itemsAt ? a : b;
-    return { items: items.items, itemsAt: items.itemsAt, weeks, allNames: { ...b.allNames, ...a.allNames } };
+    return { items: items.items, itemsAt: items.itemsAt, weeks, allNames: { ...b.allNames, ...a.allNames }, allCodes: { ...b.allCodes, ...a.allCodes } };
   }
 
   const ymd = d => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
@@ -1513,7 +1514,7 @@
     const sub = days.map(i => `<th class="${i === td ? 'today' : ''}">盤點</th><th class="${i === td ? 'today' : ''}">訂貨</th>`).join('');
     const rows = items.map(x => {
       const a = invRow(invWeek, x.id);
-      return `<tr><th class="nm">${esc(x.name)}</th><td class="u">${esc(x.unit)}</td>${days.map(i => [0, 1].map(j =>
+      return `<tr><th class="nm">${esc(x.name)}</th><td class="code"><input data-inv="${esc(x.id)}.c" value="${esc(x.code)}" autocomplete="off" placeholder="—" aria-label="${esc(x.name)} 品號"></td><td class="u">${esc(x.unit)}</td>${days.map(i => [0, 1].map(j =>
         `<td class="${i === td ? 'today' : ''} ${j ? 'ord' : ''}"><input data-inv="${esc(x.id)}.${i * 2 + j}" value="${esc(a[i * 2 + j] || '')}" inputmode="decimal" autocomplete="off" aria-label="${esc(x.name)} 星期${INV_DAYS[i]}${j ? '訂貨' : '盤點'}"></td>`).join('')).join('')}</tr>`;
     }).join('');
     return `<div class="page inv-page">
@@ -1529,7 +1530,7 @@
       </div>
       <div class="chips no-print">${[[-2, '今天'], [-1, '整週'], ...INV_DAYS.map((d, i) => [i, d])].map(([v, l]) => `<button class="chip ${invDay === v ? 'on' : ''}" data-act="inv-day" data-v="${v}">${l}</button>`).join('')}</div>
       ${items.length ? `<div class="inv-wrap no-print"><table class="inv-table ${day < 0 ? 'week' : 'one'}">
-        <thead><tr><th rowspan="2" class="nm">材料名稱</th><th rowspan="2" class="u">單位</th>${head}</tr><tr>${sub}</tr></thead>
+        <thead><tr><th rowspan="2" class="nm">材料名稱</th><th rowspan="2" class="code">品號</th><th rowspan="2" class="u">單位</th>${head}</tr><tr>${sub}</tr></thead>
         <tbody>${rows}</tbody></table></div>
         <p class="hint no-print">輸入後自動儲存；按 Enter 跳到下一個品項。</p>`
         : '<div class="empty no-print"><p>還沒有品項。</p><button class="btn primary" data-act="inv-items">＋ 加入品項</button></div>'}
@@ -1548,9 +1549,9 @@
   function invPrintHtml(wk) {
     const a = id => invRow(wk, id);
     return `<div class="inv-print"><div class="ip-title">盤點訂貨表　${invDate(wk, 0).getFullYear()}/${mdOf(invDate(wk, 0))} ～ ${mdOf(invDate(wk, 6))}</div>
-      <table><thead><tr><th rowspan="2" class="nm">材料名稱</th><th rowspan="2" class="u">單位</th>${INV_DAYS.map((d, i) => `<th colspan="2">星期${d} ${mdOf(invDate(wk, i))}</th>`).join('')}</tr>
+      <table><thead><tr><th rowspan="2" class="nm">材料名稱</th><th rowspan="2">品號</th><th rowspan="2" class="u">單位</th>${INV_DAYS.map((d, i) => `<th colspan="2">星期${d} ${mdOf(invDate(wk, i))}</th>`).join('')}</tr>
         <tr>${INV_DAYS.map(() => '<th>盤點</th><th>訂貨</th>').join('')}</tr></thead>
-      <tbody>${db.inv.items.map(x => `<tr><th class="nm">${esc(x.name)}</th><td>${esc(x.unit)}</td>${Array.from({ length: 14 }, (_, k) => `<td>${esc(a(x.id)[k] || '')}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`;
+      <tbody>${db.inv.items.map(x => `<tr><th class="nm">${esc(x.name)}</th><td>${esc(x.code)}</td><td>${esc(x.unit)}</td>${Array.from({ length: 14 }, (_, k) => `<td>${esc(a(x.id)[k] || '')}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`;
   }
   async function buildInvPdf(wk) {
     await Promise.all(PDF_LIBS.map(loadJs));
@@ -1571,7 +1572,7 @@
   /** 某一天的訂貨單文字（傳 LINE 給廠商用） */
   function invOrderText(wk, i) {
     const a = id => invRow(wk, id);
-    const lines = db.inv.items.filter(x => (a(x.id)[i * 2 + 1] || '').trim()).map(x => `${x.name} ${a(x.id)[i * 2 + 1]}${/^[\d.\/\s]+$/.test(a(x.id)[i * 2 + 1]) ? ' ' + x.unit : ''}`);
+    const lines = db.inv.items.filter(x => (a(x.id)[i * 2 + 1] || '').trim()).map(x => `${x.code ? x.code + ' ' : ''}${x.name} ${a(x.id)[i * 2 + 1]}${/^[\d.\/\s]+$/.test(a(x.id)[i * 2 + 1]) ? ' ' + x.unit : ''}`);
     return lines.length ? `${mdOf(invDate(wk, i))}（${INV_DAYS[i]}）訂貨\n${lines.join('\n')}` : '';
   }
 
@@ -1579,7 +1580,7 @@
     const txt = db.inv.items.map(x => (x.unit ? `${x.name} ${x.unit}` : x.name)).join('\n');
     const v = await modal({
       title: '編輯盤點品項',
-      body: `<p class="small muted">一行一個品項，名稱後面空一格接單位（例如「紫洋蔥 斤」）。上下調整行的順序就是表格的順序；刪掉一行就不再顯示（已填的數字會保留，加回同名品項就會再出現）。</p>
+      body: `<p class="small muted">一行一個品項，名稱後面空一格接單位（例如「紫洋蔥 斤」）；品號直接在表格的「品號」欄填。上下調整行的順序就是表格的順序；刪掉一行就不再顯示（已填的數字會保留，加回同名品項就會再出現）。</p>
         <textarea id="invItemsTxt" rows="16" style="width:100%">${esc(txt)}</textarea>`,
       buttons: [{ label: '取消', value: null }, { label: '儲存', cls: 'primary', value: m => m.querySelector('#invItemsTxt').value }],
     });
@@ -1598,9 +1599,11 @@
       if (seen.has(key)) continue;
       seen.add(key);
       const prev = byName.get(key);
-      items.push({ id: prev ? prev.id : old[key] || uid(), name, unit });
+      items.push({ id: prev ? prev.id : old[key] || uid(), name, unit, code: prev ? prev.code : (db.inv.allCodes || {})[key] || '' });
     }
     db.inv.allNames = { ...old };
+    db.inv.allCodes = { ...db.inv.allCodes };
+    db.inv.items.forEach(x => { if (x.code) db.inv.allCodes[normName(x.name)] = x.code; });
     db.inv.items.forEach(x => { db.inv.allNames[normName(x.name)] = x.id; });
     items.forEach(x => { db.inv.allNames[normName(x.name)] = x.id; });
     db.inv.items = items; db.inv.itemsAt = Date.now();
@@ -2874,7 +2877,7 @@
     if (t.tagName === 'INPUT' && !/^(text|search|number|url|password)$/.test(type)) return '';
     if (t.lang === 'vi' || t.dataset.ime === 'none') return '';                  // 越南文欄位：不干涉
     if (/^(number|url|password)$/.test(type) || /^(decimal|numeric)$/.test(t.inputMode)) return 'en';
-    if (t.id === 'mult' || t.id === 'target' || t.id === 'cloudUrl' || t.dataset.cheatMult != null || t.dataset.plan != null) return 'en';
+    if (t.id === 'mult' || t.id === 'target' || t.id === 'cloudUrl' || t.dataset.cheatMult != null || t.dataset.plan != null || t.dataset.inv != null) return 'en'; // 品號、數量
     if (/\.unit$/.test(t.dataset.bind || '') || /\.perUnit$/.test(t.dataset.price || '') || t.id === 'anchorVal') return ''; // 單位、量：中英都有
     return 'zh';
   }
@@ -2892,7 +2895,12 @@
 
   function onInput(t) {
     if (t.id === 'sopq') { sopFilter = t.value; updateSopList(); return; }
-    if (t.dataset.inv && route.name === 'inv') { const [id, k] = t.dataset.inv.split('.'); invSet(id, +k, t.value); return; }
+    if (t.dataset.inv && route.name === 'inv') {
+      const [id, k] = t.dataset.inv.split('.');
+      if (k === 'c') { const x = db.inv.items.find(y => y.id === id); if (x) { x.code = t.value.trim(); db.inv.itemsAt = Date.now(); persist(); } }
+      else invSet(id, +k, t.value);
+      return;
+    }
     if ((t.dataset.sop || t.dataset.sopRow) && route.name === 'sop') {
       const o = getSop(route.id);
       if (!o) return;

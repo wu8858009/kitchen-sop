@@ -567,3 +567,5 @@ select { max-width: 100%; }
 .inv-print .nm { text-align: center; white-space: nowrap; padding: 3px 8px; font-size: 11pt; }
 @page inv { size: A4 landscape; margin: 8mm; }
 @media print { .inv-page .print-only { display: block; } }
+.inv-table td.code input { min-width: 92px; color: var(--muted); font-size: .85rem; }
+.inv-table thead th.code { min-width: 92px; }
