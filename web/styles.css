@@ -537,3 +537,33 @@ select { max-width: 100%; }
 .plan-add { flex-wrap: wrap; }
 .page-head .btn, .btn-row .btn { max-width: 100%; }
 .scale-row .fld { max-width: 100%; min-width: 0; }
+
+/* 盤點訂貨 */
+.page.inv-page { max-width: 1400px; }
+.inv-bar { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; flex-wrap: wrap; }
+.inv-bar b { font-size: 1.05rem; }
+.inv-wrap { overflow: auto; max-height: calc(100vh - 230px); border: 1px solid var(--line); border-radius: 10px; background: var(--card); }
+.inv-table { border-collapse: separate; border-spacing: 0; width: 100%; font-size: .92rem; }
+.inv-table th, .inv-table td { border-bottom: 1px solid var(--line); border-right: 1px solid var(--line); padding: 0; text-align: center; }
+.inv-table thead th { position: sticky; top: 0; z-index: 2; background: var(--card); padding: 6px 4px; font-weight: 600; white-space: nowrap; }
+.inv-table thead tr:first-child th { height: 54px; box-sizing: border-box; }
+.inv-table thead tr:nth-child(2) th { top: 54px; font-size: .8rem; color: var(--muted); padding: 3px; }
+.inv-table thead th small { display: block; font-weight: 400; color: var(--muted); font-size: .75rem; }
+.inv-table .nm { position: sticky; left: 0; z-index: 1; background: var(--card); text-align: left; padding: 4px 10px; white-space: nowrap; font-weight: 600; min-width: 96px; }
+.inv-table thead .nm { z-index: 3; }
+.inv-table td.u { padding: 0 6px; color: var(--muted); white-space: nowrap; }
+.inv-table input { border: 0; border-radius: 0; background: transparent; text-align: center; width: 100%; min-width: 52px; min-height: 40px; padding: 4px; }
+.inv-table input:focus { outline: 2px solid var(--accent); outline-offset: -2px; background: var(--accent-soft); }
+.inv-table.one input { min-width: 90px; font-size: 1.05rem; }
+.inv-table td.ord { background: color-mix(in srgb, var(--accent-soft) 45%, transparent); }
+.inv-table .today { background: color-mix(in srgb, var(--accent-soft) 80%, transparent); }
+.inv-table thead th.today { color: var(--accent); }
+.inv-print { color: #000; page: inv; }
+.inv-print .ip-title { font-size: 13pt; font-weight: 700; margin-bottom: 4pt; }
+.inv-print table { border-collapse: collapse; width: 100%; font-size: 9.5pt; }
+.inv-print th, .inv-print td { border: 1px solid #000; padding: 3px 2px; text-align: center; font-weight: 400; height: 26px; }
+.inv-table.one { width: auto; min-width: 380px; }
+.inv-print thead th { background: #f3f3f3; }
+.inv-print .nm { text-align: center; white-space: nowrap; padding: 3px 8px; font-size: 11pt; }
+@page inv { size: A4 landscape; margin: 8mm; }
+@media print { .inv-page .print-only { display: block; } }

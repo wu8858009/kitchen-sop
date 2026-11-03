@@ -28,6 +28,8 @@ const SHEETS = {
   prices: { name: "單價", cols: ["id", "食材", "價格", "每", "單位"], text: [1, 2, 5] },
   // SOP 主資料：一份一列，表格內容存在「資料(JSON)」欄，其他欄方便在試算表瀏覽
   sops: { name: "SOP主資料", cols: ["id", "名稱", "成本合計", "淨售價", "含稅售價", "毛利", "更新時間", "照片", "資料(JSON)"], text: [1, 2, 8, 9] },
+  // 盤點訂貨：一週一列（週一日期）；「品項」列存品項清單
+  inv: { name: "盤點訂貨", cols: ["週", "更新時間", "資料(JSON)"], text: [1, 3] },
   photos: { name: "照片(系統)", cols: ["hash", "片段數"], text: [1] },
   sys: { name: "系統", cols: ["項目", "值"], text: [1, 2] },
 };
@@ -47,7 +49,8 @@ function doPost(e) {
     if (String(req.key || "") !== accessKey_()) return out_({ ok: false, auth: true, error: "存取密碼錯誤" });
     const ss = SpreadsheetApp.getActive();
     switch (req.a) {
-      case "ping": return out_({ ok: true, app: APP, rev: rev_(ss), recipes: Math.max(0, sheet_(ss, "recipes").getLastRow() - 1), claimed: claimed });
+      case "ping": return out_({ ok: true, app: APP, rev: rev_(ss), recipes: Math.max(0, sheet_(ss, "recipes").getLastRow() - 1),
+        sops: Math.max(0, sheet_(ss, "sops").getLastRow() - 1), inv: Math.max(0, sheet_(ss, "inv").getLastRow() - 2), claimed: claimed });
       case "rev": return out_({ ok: true, rev: rev_(ss) });
       case "load": return out_(load_(ss));
       case "save": return out_(save_(ss, req));
@@ -197,10 +200,20 @@ function load_(ss) {
     return o;
   });
 
+  // 還沒有盤點訂貨工作表資料時不回傳 inv，App 會保留本機的
+  let inv;
+  rows_(ss, "inv").forEach((r) => {
+    const k = str_(r[0]), o = json_(str_(r[2]), null);
+    if (!k || !o) return;
+    inv = inv || { items: [], itemsAt: 0, weeks: {} };
+    if (k === "品項") { inv.items = o.items || []; inv.itemsAt = Number(o.itemsAt) || 0; inv.allNames = o.allNames || {}; }
+    else inv.weeks[k] = o;
+  });
+
   return {
     ok: true, rev: Number(sys.rev) || 0, photoHashes: Object.keys(photos),
     db: {
-      version: 1, recipes: recipes, prices: prices, sops: sops,
+      version: 1, recipes: recipes, prices: prices, sops: sops, inv: inv,
       plan: json_(sys.plan, []), settings: json_(sys.settings, {}), deleted: json_(sys.deleted, {}),
       pricesUpdatedAt: Number(sys.pricesUpdatedAt) || 0,
     },
@@ -259,6 +272,19 @@ function save_(ss, req) {
         return [str_(o.id), str_(o.title), t.cost == null ? "" : Number(t.cost), o.net == null ? "" : Number(o.net), o.gross == null ? "" : Number(o.gross),
           t.profit == null ? "" : Number(t.profit), date_(o.updatedAt), str_(o.photoHash), JSON.stringify(rest)];
       }));
+    }
+
+    // 舊版 App 不會送 inv：保留原本的盤點訂貨
+    if (d.inv && typeof d.inv === "object") {
+      const iv = d.inv, weeks = iv.weeks || {};
+      const invRows = [["品項", date_(iv.itemsAt), JSON.stringify({ items: iv.items || [], itemsAt: iv.itemsAt || 0, allNames: iv.allNames || {} })]];
+      Object.keys(weeks).sort().reverse().forEach((k) => {
+        const w = weeks[k];
+        let at = 0;
+        Object.keys(w).forEach((id) => { at = Math.max(at, Number(w[id].at) || 0); });
+        invRows.push([k, date_(at), JSON.stringify(w)]);
+      });
+      writeRows_(ss, "inv", invRows);
     }
 
     Object.keys(incoming).forEach((h) => {
@@ -344,6 +370,7 @@ function onEdit(e) {
     const ss = sh.getParent();
     const key = Object.keys(SHEETS).filter((k) => SHEETS[k].name === name)[0];
     if (!key || key === "sys" || key === "photos") return;
+    if (key === "inv") return; // 盤點訂貨的資料是 JSON，只由 App 修改
     const sys = sysGet_(ss);
     if (key === "prices") sys.pricesUpdatedAt = String(Date.now());
     else if (key === "sops") {
