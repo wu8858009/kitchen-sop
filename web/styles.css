@@ -618,3 +618,8 @@ select { max-width: 100%; }
 .label-load b, .label-load span { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .label-load:hover { background: var(--accent-soft); }
 .label-a4-opt { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; margin-top: 8px; }
+
+/* 滑鼠停留說明 */
+#tip { position: fixed; z-index: 200; left: 0; top: 0; max-width: min(280px, calc(100vw - 16px)); padding: 6px 10px; border-radius: 8px; background: var(--fg); color: var(--bg); font-size: .85rem; font-weight: 500; line-height: 1.4; box-shadow: var(--shadow); pointer-events: none; opacity: 0; visibility: hidden; transition: opacity .12s; }
+#tip.show { opacity: 1; visibility: visible; }
+@media print { #tip { display: none !important; } }

@@ -2,7 +2,7 @@
 (() => {
   'use strict';
   const U = window.KUnits;
-  const APP_VERSION = '2.7.3';
+  const APP_VERSION = '2.7.4';
   const IS_DESKTOP = /[?&]desktop=1\b/.test(location.search);
 
   const $ = (s, el = document) => el.querySelector(s);
@@ -985,7 +985,7 @@
   const LABEL_DOTS = 8;                       // 203 dpi ≒ 每公釐 8 點
   const LABEL_MAX_W = 72;                     // B3S 列印頭 576 點 = 72 公釐
   const LABEL_SITE = 'https://wu8858009.github.io/kitchen-sop/';
-  const NIIM_LIB = 'vendor/niimbluelib.min.js?v=35';
+  const NIIM_LIB = 'vendor/niimbluelib.min.js?v=36';
   const labelForm = { name: '', qty: '', note: '', made: null, exp: '' };   // made：null = 今天，'' = 不印
   let niim = null;                            // 已連線的印表機
   let labelQ = '';                            // 已儲存標籤的搜尋字
@@ -3119,6 +3119,86 @@
 
   // ---------------------------------------------------------------- 事件
   document.addEventListener('click', e => { if (e.target.matches && e.target.matches('[data-cheat-back]')) closeCheatEditor(); });
+  // ---------------------------------------------------------------- 滑鼠停留說明
+  // 依按鈕的 data-act 查表，新頁面重畫也不用另外綁；手機沒有滑鼠就不顯示
+  const TAB_TIPS = {
+    list: '所有食譜，可搜尋、分類，點進去換算份量', sops: '依紙本表單格式管理 SOP，計算採購量、成本與毛利', plan: '把多道菜加在一起，彙總要準備的食材與成本',
+    cheat: '把食譜濃縮成卡片，列印後貼在工作台', labels: '製作食材標籤，可印到精臣 B3S 或 A4 紙', inv: '每週盤點與訂貨表，可列印或複製訂貨單', settings: '單價表、雲端同步、備份與提示音',
+  };
+  const ACT_TIPS = {
+    add: '新增一列', 'add-head': '新增小標題，把食材分段', addplan: '把這道菜依目前倍數加到備料單', anchor: '輸入手邊現有的量，自動反推倍數', bulk: '一次貼上多行文字，每行變成一列',
+    'cancel-edit': '放棄這次修改，回到上一頁', cat: '只顯示這個分類的食譜', 'cheat-add': '把選單中的食譜加成小抄卡片', 'cheat-clear': '清空所有小抄卡片，食譜不會被刪除', 'cheat-close': '關閉這個視窗', 'cheat-edit': '新增、移除卡片，調整倍數和步驟',
+    'cheat-from-plan': '把備料單的菜色全部做成小抄卡片', 'cheat-from-recipe': '把這道菜依目前倍數加到小抄', 'cheat-mv': '調整卡片順序', 'cheat-note': '新增一張自己打字的卡片', 'cheat-print': '列印目前的小抄卡片', 'cheat-rm': '從小抄移除這張卡片，食譜不會被刪除',
+    check: '勾選表示這項已備好', 'cloud-connect': '用網址和密碼連到 Google 雲端同步資料', 'cloud-off': '這台裝置停止同步，雲端資料保留', 'cloud-pill': '雲端同步狀態，點一下查看或立即同步', 'cloud-sync': '馬上和雲端同步一次',
+    'delete-recipe': '刪除這道食譜', dup: '複製一份，再改成新食譜', export: '把所有資料存成備份檔', 'inv-copy': '把當天訂貨量整理成文字，可貼到 LINE', 'inv-day': '切換顯示哪一天或整週', 'inv-items': '編輯品項的品號、規格、單價與停用狀態',
+    'inv-print': '列印這週的盤點訂貨表', 'inv-week': '切換週次', 'kbd-help': '查看所有鍵盤快捷鍵',
+    'label-a4': '排版到 A4 紙，用一般印表機印出後沿虛線裁開', 'label-browser': '電腦版視窗不能連印表機，把這張標籤帶到 Edge／Chrome 列印', 'label-connect': '連線精臣 B3S 標籤機', 'label-disconnect': '中斷和標籤機的連線', 'label-load': '把這張標籤的內容帶入，日期用當天重算',
+    'label-png': '存成 PNG 圖片，可匯入精臣 App 列印', 'label-print': '把這張標籤印到已連線的 B3S', 'label-rm': '刪除這張已儲存的標籤', 'label-save': '儲存內容，下次點一下就能帶入；相同品名會更新', 'label-sys': '用系統印表機列印，紙張設成標籤尺寸',
+    mult: '把份量換成這個倍數', mv: '調整順序', 'photo-rm': '移除這張照片', 'plan-add': '把選單中的菜加到備料單', 'plan-check': '勾選表示這項已備好', 'plan-clear': '清空備料單，食譜不會被刪除', 'plan-rm': '從備料單移除這道菜',
+    'price-add': '新增一筆食材單價', 'price-import': '把食譜用到、還沒有單價的食材加進來', 'price-rm': '刪除這筆單價', print: '列印這一頁', 'ring-file-rm': '移除自訂提示音，改回內建鈴聲', 'ring-test': '播放目前選的提示音', rm: '刪除這一列', 'save-recipe': '儲存這道食譜', seed: '載入內建的範例食譜',
+    'sop-del': '刪除這份 SOP', 'sop-dup': '複製一份 SOP', 'sop-from-recipe': '從選擇的食譜帶入食材', 'sop-new': '新增一份空白 SOP', 'sop-photo-rm': '移除這張成品照片', 'sop-print': '列印這份 SOP 表單', 'sop-row-add': '新增一列食材', 'sop-row-mv': '調整順序', 'sop-row-rm': '刪除這一列',
+    stepdone: '點一下標記這個步驟已完成', 't-add': '倒數多加 1 分鐘', 't-pause': '暫停或繼續倒數', 't-x': '關閉這個計時器', timer: '開始這個步驟的倒數計時', 'tr-draft': '用 Google 翻譯填入空白的越南文欄位', uncheck: '清除所有已勾選的食材', wake: '烹調時保持螢幕不關閉', wipe: '清除這台裝置的全部資料',
+  };
+  const ED_TIPS = { add: '在表格最後新增一個品項', up: '往上移一列', down: '往下移一列', rm: '刪除這個品項，已填的數字會保留' };
+  const LABEL_TIPS = {
+    name: '印在標籤最上方，可從食譜、SOP、盤點品項挑選', qty: '例如 2 公斤；留空就不印', made: '預設今天；清空就不印', days: '填天數會自動算出到期日', exp: '也可以直接選日期，保存天數會清空', who: '留空就不印', note: '例如保存方式；留空就不印', copies: '要印幾張',
+    size: '選和標籤紙相同的尺寸', w: '標籤紙寬度，B3S 最大可印 72 公釐', h: '標籤紙高度', paper: '選和標籤紙相同的種類，一般貼紙選間隙紙', density: '數字越大印得越黑', task: '連得上卻印不出來時才需要換', a4fill: '勾選就排滿一頁；不勾就依「張數」排版',
+  };
+  const CHEAT_OPT_TIPS = { ing: '卡片上顯示食材用量', notes: '卡片上顯示食譜備註', cost: '卡片上顯示成本', vi: '卡片上加入越南文', steps: '選擇卡片要列出哪些步驟；沒標重點的菜會全部列出', layout: '卡片的排列方式', size: '卡片的字體大小' };
+  const ID_TIPS = { mult: '輸入倍數，例如 2、1.5 或 /3', target: '輸入想要的份量，自動算出倍數', planAdd: '選擇要加入備料單的菜', cheatAdd: '選擇要做成卡片的食譜', labelQ: '用品名搜尋已儲存的標籤', invEdStop: '顯示或收起已停用的品項' };
+  const TEXT_TIPS = { '選擇照片': '選一張照片放在這裡', '📷 照片辨識': '拍下或選擇紙本 SOP，自動辨識填入表格', '📷 從照片建立': '拍下或選擇紙本 SOP，自動建立一份新的', '⬆ 上傳鈴聲': '用自己的音檔當計時器提示音', '⬆ 匯入備份': '從備份檔還原資料', '雲端設定說明': '查看 Google 雲端同步的設定步驟' };
+  const HREF_TIPS = [[/^#\/new/, '新增一道食譜'], [/^#\/edit\//, '編輯這道食譜的內容'], [/^#\/r\//, '開啟這道食譜'], [/^#\/sop\//, '開啟這份 SOP'], [/^#\/sops$/, '回 SOP 列表'], [/^#\/prices$/, '開啟食材單價表'], [/^#\/?$/, '回食譜列表']];
+  const tipOther = el => {
+    if (el.id && ID_TIPS[el.id]) return ID_TIPS[el.id];
+    if (/^unitMode/.test(el.id || '')) return '選擇換算後的單位顯示方式';
+    if (el.dataset.cheatOpt) return CHEAT_OPT_TIPS[el.dataset.cheatOpt] || '';
+    if (el.dataset.cheatSteps != null) return '一行打一個步驟，會存回這道食譜';
+    if (el.dataset.cheatMult != null) return '這張卡片的倍數，例如 2 或 /3';
+    if (/\.key$/.test(el.dataset.bind || '')) return '標記為重點，小抄可以只列重點步驟';
+    if (el.tagName === 'A') {
+      const h = el.getAttribute('href') || '', m = HREF_TIPS.find(([re]) => re.test(h));
+      if (m) return m[1];
+    }
+    if (el.tagName === 'A' || el.tagName === 'LABEL') return TEXT_TIPS[el.textContent.trim()] || '';
+    return '';
+  };
+  const tipBox = document.createElement('div');
+  tipBox.id = 'tip'; tipBox.setAttribute('role', 'tooltip');
+  document.body.appendChild(tipBox);
+  let tipEl = null, tipTimer = 0;
+  function tipText(el) {
+    if (el.dataset.tip) return el.dataset.tip;
+    return (el.dataset.act && ACT_TIPS[el.dataset.act]) || (el.dataset.tab && TAB_TIPS[el.dataset.tab]) || (el.dataset.ed && ED_TIPS[el.dataset.ed]) || (el.dataset.label && LABEL_TIPS[el.dataset.label]) || tipOther(el);
+  }
+  const tipTarget = t => {
+    for (let el = t; el && el !== document.body; el = el.parentElement) {
+      if (!el.dataset) continue;
+      if (el.title) { el.dataset.tip = el.title; if (!el.getAttribute('aria-label')) el.setAttribute('aria-label', el.title); el.removeAttribute('title'); } // 換成自己的說明，避免同時跳兩個
+      if (tipText(el)) return el;
+    }
+    return null;
+  };
+  function tipHide() { clearTimeout(tipTimer); tipEl = null; tipBox.classList.remove('show'); }
+  function tipShow(el) {
+    tipBox.textContent = tipText(el);
+    tipBox.classList.add('show');
+    const r = el.getBoundingClientRect(), b = tipBox.getBoundingClientRect(), gap = 8;
+    const below = r.bottom + gap + b.height <= window.innerHeight;
+    tipBox.style.left = Math.max(8, Math.min(window.innerWidth - b.width - 8, r.left + r.width / 2 - b.width / 2)) + 'px';
+    tipBox.style.top = (below ? r.bottom + gap : Math.max(8, r.top - gap - b.height)) + 'px';
+  }
+  if (window.matchMedia('(hover: hover)').matches) {
+    document.addEventListener('mouseover', e => {
+      const el = tipTarget(e.target);
+      if (el === tipEl) return;
+      tipHide();
+      if (!el) return;
+      tipEl = el;
+      tipTimer = setTimeout(() => { if (tipEl === el && el.isConnected) tipShow(el); }, 350);
+    });
+    ['mousedown', 'keydown', 'scroll', 'hashchange'].forEach(ev => window.addEventListener(ev, tipHide, true));
+  }
+
   document.addEventListener('click', async e => {
     const el = e.target.closest('[data-act]');
     if (!el || el.tagName === 'SELECT' || (el.type === 'file')) return;
