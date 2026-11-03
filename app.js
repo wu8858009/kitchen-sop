@@ -2,7 +2,7 @@
 (() => {
   'use strict';
   const U = window.KUnits;
-  const APP_VERSION = '2.6.4';
+  const APP_VERSION = '2.6.5';
   const IS_DESKTOP = /[?&]desktop=1\b/.test(location.search);
 
   const $ = (s, el = document) => el.querySelector(s);
@@ -406,7 +406,7 @@
       case 'cheat': app.innerHTML = viewCheat(); updateCheat(); break;
       case 'sops': app.innerHTML = viewSops(); updateSopList(); break;
       case 'sop': app.innerHTML = viewSop(route.id); updateSopCalc(); break;
-      case 'inv': app.innerHTML = viewInv(); break;
+      case 'inv': app.innerHTML = viewInv(); fitInv(); break;
       case 'prices': app.innerHTML = viewPrices(); break;
       case 'settings': app.innerHTML = viewSettings(); fillSettingsInfo(); setSync(cloudState.s, cloudState.msg); break;
       default: app.innerHTML = viewList(); updateList();
@@ -500,14 +500,14 @@
       </section>
       <div class="print-only print-scale" id="printScale"></div>
 
-      <section class="card">
+      <section class="card rc-ing">
         <div class="sec-head"><h2>食材</h2><span class="muted small" id="ingSub"></span>
           <div class="spacer"></div><button class="btn sm no-print" data-act="uncheck">清除勾選</button></div>
         <div id="ing"></div>
         <div id="costBox" class="cost-box"></div>
       </section>
 
-      <section class="card">
+      <section class="card rc-steps">
         <div class="sec-head"><h2>SOP 步驟</h2></div>
         ${r.steps.length ? `<ol class="steps">${r.steps.map((s, k) => `
           <li class="${s.key ? 'key' : ''} ${st.stepsDone.has(s.id) ? 'done' : ''}" data-act="stepdone" data-s="${esc(s.id)}">
@@ -1599,6 +1599,15 @@
     return lines.length ? `${mdOf(invDate(wk, i))}（${INV_DAYS[i]}）訂貨\n${lines.join('\n')}` : '';
   }
 
+  // 盤點表高度跟著畫面：底部切齊視窗（手機扣掉下方導覽列），不會跟整頁捲動打架
+  function fitInv() {
+    const w = $('.inv-wrap'), t = $('.tabs');
+    if (!w) return;
+    const nav = getComputedStyle(t).position === 'fixed' ? t.offsetHeight : 0;
+    w.style.maxHeight = Math.max(240, window.innerHeight - (w.getBoundingClientRect().top + window.scrollY) - nav - 16) + 'px';
+  }
+  window.addEventListener('resize', fitInv);
+
   // 品項編輯：仿叫貨系統的表格（# 品號 品名 規格 單位名稱 單價 暫不供貨 已停用）；可從 Excel／叫貨系統複製多列貼上
   const invOn = x => !x.off && !x.stop;
   const INV_COLS = [['code', '品號', 'w-code'], ['name', '品名', 'w-name'], ['spec', '規格', 'w-spec'], ['unit', '單位名稱', 'w-unit'], ['price', '單價', 'w-price']];
@@ -2343,7 +2352,7 @@
 
   // ---------------------------------------------------------------- 設定 / 資料
   function viewSettings() {
-    return `<div class="page">
+    return `<div class="page settings-page">
       <div class="page-head"><h1 class="head-title">設定與資料</h1><div class="spacer"></div>
         ${IS_MOBILE ? '' : '<button class="btn" data-act="kbd-help">⌨ 快捷鍵（F1）</button>'}</div>
       ${viewRingSettings()}
