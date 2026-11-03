@@ -2,7 +2,7 @@
 (() => {
   'use strict';
   const U = window.KUnits;
-  const APP_VERSION = '2.5.0';
+  const APP_VERSION = '2.6.0';
   const IS_DESKTOP = /[?&]desktop=1\b/.test(location.search);
 
   const $ = (s, el = document) => el.querySelector(s);
@@ -117,7 +117,7 @@
 
   // ---------------------------------------------------------------- 資料模型
   function emptyDb() {
-    return { version: 1, recipes: [], prices: [], sops: [], plan: [], settings: { unitMode: 'auto', ringTone: 'beep', ringVol: 0.8 }, deleted: {}, pricesUpdatedAt: 0, cloud: null, sync: { rev: 0, dirty: false, photos: [] } };
+    return { version: 1, recipes: [], prices: [], sops: [], inv: normInv(null), plan: [], settings: { unitMode: 'auto', ringTone: 'beep', ringVol: 0.8 }, deleted: {}, pricesUpdatedAt: 0, cloud: null, sync: { rev: 0, dirty: false, photos: [] } };
   }
 
   function normRecipe(r) {
@@ -180,6 +180,7 @@
       settings: Object.assign(e.settings, d.settings || {}),
       deleted: d.deleted && typeof d.deleted === 'object' && !Array.isArray(d.deleted) ? { ...d.deleted } : {},
       sops: Array.isArray(d.sops) ? d.sops.map(normSop) : [],
+      inv: normInv(d.inv),
       pricesUpdatedAt: +d.pricesUpdatedAt || 0,
       pristine: !!d.pristine, // 只有自動放入、沒動過的範例資料
       cloud: d.cloud && d.cloud.url ? { url: String(d.cloud.url), key: String(d.cloud.key || '') } : null,
@@ -405,6 +406,7 @@
       case 'cheat': app.innerHTML = viewCheat(); updateCheat(); break;
       case 'sops': app.innerHTML = viewSops(); updateSopList(); break;
       case 'sop': app.innerHTML = viewSop(route.id); updateSopCalc(); break;
+      case 'inv': app.innerHTML = viewInv(); break;
       case 'prices': app.innerHTML = viewPrices(); break;
       case 'settings': app.innerHTML = viewSettings(); fillSettingsInfo(); setSync(cloudState.s, cloudState.msg); break;
       default: app.innerHTML = viewList(); updateList();
@@ -1462,6 +1464,149 @@
   }
 
 
+  // ---------------------------------------------------------------- 盤點訂貨
+  // 依紙本「盤點／訂貨」週表：每個品項、每天各一格盤點量與訂貨量。
+  // db.inv = { items: [{id,name,unit}], itemsAt, weeks: { 週一日期: { 品項id: { at, a: [一盤,一訂,二盤,二訂…日訂] } } } }
+  // 同步時品項清單整份以較新的為準；每週每個品項一列各自以較新的為準（兩台同時填不同品項不會互蓋）
+  const INV_DAYS = ['一', '二', '三', '四', '五', '六', '日'];
+  const INV_DEFAULT = '紫洋蔥 斤|紅辣椒 斤|粗蒜碎 斤|九層塔 斤|大蒜仁 斤|中薑 斤|牛奶小黃瓜 斤|白蘿蔔 斤|空心菜 斤|南部蔥 公斤|進口洋蔥 斤|杏包菇 斤|鮮香菇 斤|牛蕃茄 斤|青江菜 斤|絲瓜 斤|南瓜-木瓜形 斤|高麗菜 斤|紅蘿蔔 斤|蒜片 斤|豆芽菜 斤|細蒜泥 斤';
+  function normInv(v) {
+    v = v && typeof v === 'object' ? v : {};
+    const has = Array.isArray(v.items);
+    // 預設品項用固定 id，各裝置還沒改過清單時填的資料才對得起來
+    const items = has ? v.items.map(x => ({ id: String(x.id || uid()), name: String(x.name || ''), unit: String(x.unit || '') }))
+      : INV_DEFAULT.split('|').map((l, i) => { const [name, unit] = l.split(' '); return { id: 'inv' + (i + 1), name, unit }; });
+    const weeks = {};
+    if (v.weeks && typeof v.weeks === 'object') for (const [k, w] of Object.entries(v.weeks)) {
+      if (!/^\d{4}-\d\d-\d\d$/.test(k) || !w || typeof w !== 'object') continue;
+      const o = {};
+      for (const [id, r] of Object.entries(w)) if (r && Array.isArray(r.a)) o[id] = { at: +r.at || 0, a: Array.from({ length: 14 }, (_, i) => String(r.a[i] == null ? '' : r.a[i])) };
+      weeks[k] = o;
+    }
+    const allNames = v.allNames && typeof v.allNames === 'object' ? { ...v.allNames } : {};
+    return { items, itemsAt: has ? +v.itemsAt || 0 : 0, weeks, allNames };
+  }
+  function mergeInv(a, b) {
+    const weeks = {};
+    for (const src of [b, a]) for (const [k, w] of Object.entries(src.weeks)) {
+      const o = weeks[k] || (weeks[k] = {});
+      for (const [id, r] of Object.entries(w)) if (!o[id] || r.at >= o[id].at) o[id] = r;
+    }
+    const items = a.itemsAt >= b.itemsAt ? a : b;
+    return { items: items.items, itemsAt: items.itemsAt, weeks, allNames: { ...b.allNames, ...a.allNames } };
+  }
+
+  const ymd = d => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  const weekOf = d => { const x = new Date(d.getFullYear(), d.getMonth(), d.getDate()); x.setDate(x.getDate() - (x.getDay() + 6) % 7); return ymd(x); };
+  const invDate = (wk, i) => { const [y, m, d] = wk.split('-').map(Number); return new Date(y, m - 1, d + i); };
+  const mdOf = d => `${d.getMonth() + 1}/${d.getDate()}`;
+  let invWeek = weekOf(new Date());
+  let invDay = (() => { try { const v = localStorage.getItem('ksop.invDay'); if (v != null) return +v; } catch (e) { /* 無法存取 */ } return IS_MOBILE ? -2 : -1; })(); // -1 整週、-2 今天、0~6
+  const invDayNow = () => (invDay === -2 ? (invWeek === weekOf(new Date()) ? (new Date().getDay() + 6) % 7 : 0) : invDay);
+  const invRow = (wk, id) => ((db.inv.weeks[wk] || {})[id] || { a: [] }).a;
+
+  function viewInv() {
+    const today = new Date(), thisWeek = weekOf(today), td = invWeek === thisWeek ? (today.getDay() + 6) % 7 : -1;
+    const day = invDayNow(), days = day < 0 ? [0, 1, 2, 3, 4, 5, 6] : [day];
+    const items = db.inv.items;
+    const head = days.map(i => `<th colspan="2" class="${i === td ? 'today' : ''}">星期${INV_DAYS[i]}<small>${mdOf(invDate(invWeek, i))}</small></th>`).join('');
+    const sub = days.map(i => `<th class="${i === td ? 'today' : ''}">盤點</th><th class="${i === td ? 'today' : ''}">訂貨</th>`).join('');
+    const rows = items.map(x => {
+      const a = invRow(invWeek, x.id);
+      return `<tr><th class="nm">${esc(x.name)}</th><td class="u">${esc(x.unit)}</td>${days.map(i => [0, 1].map(j =>
+        `<td class="${i === td ? 'today' : ''} ${j ? 'ord' : ''}"><input data-inv="${esc(x.id)}.${i * 2 + j}" value="${esc(a[i * 2 + j] || '')}" inputmode="decimal" autocomplete="off" aria-label="${esc(x.name)} 星期${INV_DAYS[i]}${j ? '訂貨' : '盤點'}"></td>`).join('')).join('')}</tr>`;
+    }).join('');
+    return `<div class="page inv-page">
+      <div class="page-head no-print"><h1 class="head-title">盤點訂貨</h1><div class="spacer"></div>
+        ${day >= 0 ? '<button class="btn" data-act="inv-copy">📋 複製訂貨單</button>' : ''}
+        <button class="btn" data-act="inv-items">✏️ 編輯品項</button>
+        <button class="btn" data-act="inv-print">🖨 列印</button></div>
+      <div class="inv-bar no-print">
+        <button class="btn" data-act="inv-week" data-d="-1" title="上一週">‹</button>
+        <b>${mdOf(invDate(invWeek, 0))}（一）～ ${mdOf(invDate(invWeek, 6))}（日）</b>
+        <button class="btn" data-act="inv-week" data-d="1" title="下一週">›</button>
+        ${invWeek !== thisWeek ? '<button class="btn ghost" data-act="inv-week" data-d="0">回本週</button>' : ''}
+      </div>
+      <div class="chips no-print">${[[-2, '今天'], [-1, '整週'], ...INV_DAYS.map((d, i) => [i, d])].map(([v, l]) => `<button class="chip ${invDay === v ? 'on' : ''}" data-act="inv-day" data-v="${v}">${l}</button>`).join('')}</div>
+      ${items.length ? `<div class="inv-wrap no-print"><table class="inv-table ${day < 0 ? 'week' : 'one'}">
+        <thead><tr><th rowspan="2" class="nm">材料名稱</th><th rowspan="2" class="u">單位</th>${head}</tr><tr>${sub}</tr></thead>
+        <tbody>${rows}</tbody></table></div>
+        <p class="hint no-print">輸入後自動儲存；按 Enter 跳到下一個品項。</p>`
+        : '<div class="empty no-print"><p>還沒有品項。</p><button class="btn primary" data-act="inv-items">＋ 加入品項</button></div>'}
+      <div class="print-only" id="invPrint"></div>
+    </div>`;
+  }
+
+  function invSet(id, k, v) {
+    const w = db.inv.weeks[invWeek] || (db.inv.weeks[invWeek] = {});
+    const r = w[id] || (w[id] = { at: 0, a: Array(14).fill('') });
+    r.a[k] = v.trim(); r.at = Date.now();
+    persist();
+  }
+
+  /** 列印用：仿紙本週表（A4 橫向） */
+  function invPrintHtml(wk) {
+    const a = id => invRow(wk, id);
+    return `<div class="inv-print"><div class="ip-title">盤點訂貨表　${invDate(wk, 0).getFullYear()}/${mdOf(invDate(wk, 0))} ～ ${mdOf(invDate(wk, 6))}</div>
+      <table><thead><tr><th rowspan="2" class="nm">材料名稱</th><th rowspan="2" class="u">單位</th>${INV_DAYS.map((d, i) => `<th colspan="2">星期${d} ${mdOf(invDate(wk, i))}</th>`).join('')}</tr>
+        <tr>${INV_DAYS.map(() => '<th>盤點</th><th>訂貨</th>').join('')}</tr></thead>
+      <tbody>${db.inv.items.map(x => `<tr><th class="nm">${esc(x.name)}</th><td>${esc(x.unit)}</td>${Array.from({ length: 14 }, (_, k) => `<td>${esc(a(x.id)[k] || '')}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`;
+  }
+  async function buildInvPdf(wk) {
+    await Promise.all(PDF_LIBS.map(loadJs));
+    const host = document.createElement('div');
+    host.className = 'pdf-render';
+    host.style.cssText = 'position:fixed;left:-10000px;top:0;width:1100px';
+    host.innerHTML = invPrintHtml(wk);
+    document.body.appendChild(host);
+    try {
+      const cv = await window.html2canvas(host.firstElementChild, { scale: 2, backgroundColor: '#ffffff' });
+      const pdf = new window.jspdf.jsPDF({ unit: 'mm', format: 'a4', orientation: 'landscape' });
+      const M = 8, W = 297 - M * 2, H = 210 - M * 2, imgH = cv.height * W / cv.width, k = Math.min(1, H / imgH);
+      pdf.addImage(cv.toDataURL('image/jpeg', 0.92), 'JPEG', M + (W - W * k) / 2, M, W * k, imgH * k);
+      return new File([pdf.output('blob')], `盤點訂貨_${wk}.pdf`, { type: 'application/pdf' });
+    } finally { host.remove(); }
+  }
+
+  /** 某一天的訂貨單文字（傳 LINE 給廠商用） */
+  function invOrderText(wk, i) {
+    const a = id => invRow(wk, id);
+    const lines = db.inv.items.filter(x => (a(x.id)[i * 2 + 1] || '').trim()).map(x => `${x.name} ${a(x.id)[i * 2 + 1]}${/^[\d.\/\s]+$/.test(a(x.id)[i * 2 + 1]) ? ' ' + x.unit : ''}`);
+    return lines.length ? `${mdOf(invDate(wk, i))}（${INV_DAYS[i]}）訂貨\n${lines.join('\n')}` : '';
+  }
+
+  async function invEditItems() {
+    const txt = db.inv.items.map(x => (x.unit ? `${x.name} ${x.unit}` : x.name)).join('\n');
+    const v = await modal({
+      title: '編輯盤點品項',
+      body: `<p class="small muted">一行一個品項，名稱後面空一格接單位（例如「紫洋蔥 斤」）。上下調整行的順序就是表格的順序；刪掉一行就不再顯示（已填的數字會保留，加回同名品項就會再出現）。</p>
+        <textarea id="invItemsTxt" rows="16" style="width:100%">${esc(txt)}</textarea>`,
+      buttons: [{ label: '取消', value: null }, { label: '儲存', cls: 'primary', value: m => m.querySelector('#invItemsTxt').value }],
+    });
+    if (v == null) return;
+    const byName = new Map(db.inv.items.map(x => [normName(x.name), x]));
+    // 以前刪掉的品項：從各週資料找回原本的 id，資料才接得回來
+    const old = db.inv.allNames || {};
+    const seen = new Set();
+    const items = [];
+    for (const line of v.split('\n')) {
+      const t = line.trim().replace(/\s+/g, ' ');
+      if (!t) continue;
+      const m = t.match(/^(.+?)\s+(\S{1,4})$/);
+      const name = m ? m[1] : t, unit = m ? m[2] : '';
+      const key = normName(name);
+      if (seen.has(key)) continue;
+      seen.add(key);
+      const prev = byName.get(key);
+      items.push({ id: prev ? prev.id : old[key] || uid(), name, unit });
+    }
+    db.inv.allNames = { ...old };
+    db.inv.items.forEach(x => { db.inv.allNames[normName(x.name)] = x.id; });
+    items.forEach(x => { db.inv.allNames[normName(x.name)] = x.id; });
+    db.inv.items = items; db.inv.itemsAt = Date.now();
+    persist(); render(); toast(`已更新，共 ${items.length} 個品項`);
+  }
+
   // ---- 照片辨識：照片 → Google 雲端硬碟 OCR（後端 a:'ocr'）→ 文字 → 解析成 SOP 欄位，確認後填入
   const OCR_UNITS = '公克|公斤|台斤|毫升|公升|kg|ml|cc|克|斤|兩|g|L|個|顆|片|包|條|根|把|罐|瓶|盒|隻|尾|瓣|粒|張|份|支|塊|袋|桶|箱';
   const OCR_UNIT_RE = new RegExp('^(' + OCR_UNITS + ')$', 'i');
@@ -1910,6 +2055,7 @@
   function printPage() {
     if (route.name === 'cheat') return clickAct('cheat-print');
     if (route.name === 'sop') return clickAct('sop-print');
+    if (route.name === 'inv') return clickAct('inv-print');
     if (/^(r|plan)$/.test(route.name)) { flush(); window.print(); return true; }
     return false;
   }
@@ -1937,7 +2083,8 @@
     ['Alt+3', '切到「備料單」', '', () => go('#/plan')],
     ['Alt+4', '切到「小抄」', '', () => go('#/cheat')],
     ['Alt+5', '切到「單價表」', '', () => go('#/prices')],
-    ['Alt+6', '切到「設定」', '', () => go('#/settings')],
+    ['Alt+6', '切到「盤點訂貨」', '', () => go('#/inv')],
+    ['Alt+7', '切到「設定」', '', () => go('#/settings')],
     ['Ctrl+F', '搜尋（食譜／SOP／單價表）', '', focusSearch],
     ['/', '搜尋（不在輸入框時）', '', focusSearch],
     ['Alt+N', '新增（依頁面：食譜、SOP、單價、備料單菜色、小抄卡片、編輯中的食材）', '', newItem],
@@ -1975,7 +2122,7 @@
     ['Alt+I', '從食譜帶入食材', 'prices', () => clickAct('price-import')],
     ['Alt+X', '匯出備份', 'settings', () => clickAct('export')],
   ];
-  const PAGE_NAMES = { '': '全部頁面', r: '食譜頁', edit: '編輯食譜', sop: 'SOP 表單', sops: 'SOP 列表', plan: '備料單', cheat: '小抄', prices: '單價表', settings: '設定' };
+  const PAGE_NAMES = { '': '全部頁面', r: '食譜頁', edit: '編輯食譜', sop: 'SOP 表單', sops: 'SOP 列表', plan: '備料單', cheat: '小抄', prices: '單價表', inv: '盤點訂貨', settings: '設定' };
 
   function keyName(e) {
     const k = e.key === ' ' ? 'Space' : e.key.length === 1 ? e.key.toUpperCase() : e.key;
@@ -1987,6 +2134,16 @@
     const base = code && e.altKey ? code[1] : /^Key([A-Z])$/.test(e.code || '') ? e.code.slice(3) : k;
     return (e.ctrlKey || e.metaKey ? 'Ctrl+' : '') + (e.altKey ? 'Alt+' : '') + (e.shiftKey && base.length > 1 ? 'Shift+' : '') + base;
   }
+  // 盤點訂貨表：Enter／↓ 到下一個品項同一格，↑ 回上一個
+  document.addEventListener('keydown', e => {
+    const t = e.target;
+    if (!t.dataset || !t.dataset.inv || e.isComposing || e.keyCode === 229 || e.altKey || e.ctrlKey) return;
+    const d = e.key === 'Enter' || e.key === 'ArrowDown' ? 1 : e.key === 'ArrowUp' ? -1 : 0;
+    if (!d) return;
+    const k = t.dataset.inv.split('.')[1], all = $$(`#app input[data-inv$=".${k}"]`), nx = all[all.indexOf(t) + (e.shiftKey && e.key === 'Enter' ? -1 : d)];
+    e.preventDefault();
+    if (nx) { nx.focus(); nx.select(); } else t.blur();
+  });
   document.addEventListener('keydown', e => {
     if (e.defaultPrevented || e.isComposing || e.keyCode === 229 || e.repeat && !/^[+-]$/.test(e.key)) return; // 對話框已處理過的鍵不再觸發
     const name = keyName(e);
@@ -2207,6 +2364,7 @@
       db.pricesUpdatedAt = now;
       for (const r of inc.recipes) { const k = db.recipes.findIndex(x => x.id === r.id); if (k >= 0) db.recipes[k] = r; else db.recipes.push(r); }
       for (const p of inc.prices) { const k = db.prices.findIndex(x => normName(x.name) === normName(p.name)); if (k >= 0) db.prices[k] = p; else db.prices.push(p); }
+      db.inv = mergeInv(inc.inv, db.inv);
       for (const o of inc.sops) { o.updatedAt = now; delete db.deleted[o.id]; const k = db.sops.findIndex(x => x.id === o.id); if (k >= 0) db.sops[k] = o; else db.sops.push(o); }
     }
     persist(true);
@@ -2369,7 +2527,7 @@
     const sops = [...smap.values()].filter(o => !(deleted[o.id] >= (o.updatedAt || 0)));
     const localPrices = local.pricesUpdatedAt >= remote.pricesUpdatedAt;
     return {
-      ...local, recipes, sops, deleted,
+      ...local, recipes, sops, deleted, inv: mergeInv(local.inv, remote.inv),
       prices: localPrices ? local.prices : remote.prices,
       pricesUpdatedAt: Math.max(local.pricesUpdatedAt, remote.pricesUpdatedAt),
     };
@@ -2378,6 +2536,7 @@
   function applyRemote(L, merge) {
     const remote = normalizeDb(L.db);
     if (!Array.isArray(L.db && L.db.sops)) remote.sops = db.sops; // 舊版後端沒有 SOP：保留本機的
+    if (!(L.db && L.db.inv)) remote.inv = db.inv;                  // 舊版後端沒有盤點訂貨：保留本機的
     const sync = { ...db.sync, rev: L.rev, photos: L.photoHashes || db.sync.photos };
     if (merge) { db = mergeDb(db, remote); db.sync = { ...sync, dirty: true }; }
     else db = { ...remote, cloud: db.cloud, sync: { ...sync, dirty: false } };
@@ -2469,10 +2628,12 @@
     try {
       const info = await cloudCall({ a: 'ping' }, cfg);
       let mode = 'upload';
-      if (info.rev > 0 && info.recipes > 0) {
-        mode = db.recipes.length && !db.pristine ? await modal({
+      // 雲端只要有食譜、SOP 或盤點資料就不能直接覆蓋
+      if (info.rev > 0 && (info.recipes > 0 || info.sops > 0 || info.inv > 0)) {
+        const localHas = db.recipes.length || db.sops.length || Object.values(db.inv.weeks).some(w => Object.values(w).some(r => r.a.some(Boolean)));
+        mode = localHas && !db.pristine ? await modal({
           title: '雲端已有資料',
-          body: `<p>雲端有 ${info.recipes} 道食譜，這台裝置有 ${db.recipes.length} 道。要怎麼處理？</p>
+          body: `<p>雲端有 ${info.recipes} 道食譜、${info.sops || 0} 份 SOP${info.inv > 0 ? `、${info.inv} 週盤點訂貨` : ''}；這台裝置有 ${db.recipes.length} 道食譜、${db.sops.length} 份 SOP。要怎麼處理？</p>
             <p class="small"><b>下載雲端</b>：用雲端資料取代這台的資料。<br><b>合併兩邊</b>：兩邊的食譜都保留，同一道以較新的為準。<br><b>上傳本機</b>：用這台的資料覆蓋雲端。</p>`,
           buttons: [{ label: '取消', value: null }, { label: '上傳本機', cls: 'danger', value: 'upload' }, { label: '合併兩邊', value: 'merge' }, { label: '下載雲端', cls: 'primary', value: 'download' }],
         }) : 'download';
@@ -2632,6 +2793,21 @@
         persist(true); location.hash = '#/sops'; toast('已刪除');
         break;
       }
+      case 'inv-week': { const d = +el.dataset.d; invWeek = d ? ymd(invDate(invWeek, d * 7)) : weekOf(new Date()); render(); break; }
+      case 'inv-day': invDay = +el.dataset.v; try { localStorage.setItem('ksop.invDay', String(invDay)); } catch (e) { /* 無法存取 */ } render(); break;
+      case 'inv-items': invEditItems(); break;
+      case 'inv-print': {
+        if (IS_MOBILE) sharePdf(() => buildInvPdf(invWeek));
+        else { $('#invPrint').innerHTML = invPrintHtml(invWeek); flush(); window.print(); }
+        break;
+      }
+      case 'inv-copy': {
+        const t = invOrderText(invWeek, invDayNow());
+        if (!t) { toast('這天還沒有填訂貨量'); break; }
+        try { await navigator.clipboard.writeText(t); toast('已複製訂貨單，可以貼到 LINE'); }
+        catch (e) { modal({ title: '訂貨單', body: `<textarea rows="12" style="width:100%" readonly>${esc(t)}</textarea>`, buttons: [{ label: '關閉', cls: 'primary', value: null }] }); }
+        break;
+      }
       case 'sop-photo-rm': { const o = getSop(route.id); o.photo = ''; sopTouch(o); render(); break; }
       case 'cheat-close': closeCheatEditor(); break;
       case 'cheat-add': {
@@ -2716,6 +2892,7 @@
 
   function onInput(t) {
     if (t.id === 'sopq') { sopFilter = t.value; updateSopList(); return; }
+    if (t.dataset.inv && route.name === 'inv') { const [id, k] = t.dataset.inv.split('.'); invSet(id, +k, t.value); return; }
     if ((t.dataset.sop || t.dataset.sopRow) && route.name === 'sop') {
       const o = getSop(route.id);
       if (!o) return;
