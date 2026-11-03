@@ -2,7 +2,7 @@
 (() => {
   'use strict';
   const U = window.KUnits;
-  const APP_VERSION = '2.7.1';
+  const APP_VERSION = '2.7.2';
   const IS_DESKTOP = /[?&]desktop=1\b/.test(location.search);
 
   const $ = (s, el = document) => el.querySelector(s);
@@ -985,7 +985,7 @@
   const LABEL_DOTS = 8;                       // 203 dpi ≒ 每公釐 8 點
   const LABEL_MAX_W = 72;                     // B3S 列印頭 576 點 = 72 公釐
   const LABEL_SITE = 'https://wu8858009.github.io/kitchen-sop/';
-  const NIIM_LIB = 'vendor/niimbluelib.min.js?v=33';
+  const NIIM_LIB = 'vendor/niimbluelib.min.js?v=34';
   const labelForm = { name: '', qty: '', note: '', made: null, exp: '' };   // made：null = 今天，'' = 不印
   let niim = null;                            // 已連線的印表機
   let labelQ = '';                            // 已儲存標籤的搜尋字
@@ -996,8 +996,8 @@
   }
   const labelMade = () => (labelForm.made == null ? ymd(new Date()) : labelForm.made);
   function labelExp() {
-    const d = parseFloat(labelCfg().days), m = labelMade();
-    if (!(d >= 0) || !m) return labelForm.exp;
+    const d = parseFloat(labelCfg().days), m = labelMade() || ymd(new Date()); // 製造日期不印時從今天算
+    if (!(d >= 0)) return labelForm.exp;
     const x = new Date(m + 'T00:00:00');
     x.setDate(x.getDate() + Math.round(d));
     return ymd(x);
@@ -1158,7 +1158,6 @@
           </details>
         </section>
       </div>
-      <div class="print-only label-sheet" id="labelSheet"></div>
     </div>`;
   }
   function onLabelInput(t) {
@@ -1242,12 +1241,26 @@
     a.href = url; a.download = name; document.body.appendChild(a); a.click(); a.remove();
     setTimeout(() => URL.revokeObjectURL(url), 60000);
   }
-  /** 系統列印：紙張大小設成標籤尺寸，給有裝 Windows 驅動程式的標籤機用 */
-  function labelSys() {
-    const c = labelCfg(), box = $('#labelSheet'), src = drawLabel(document.createElement('canvas')).toDataURL('image/png');
+  /** 系統列印：放在獨立的列印頁面，不受主畫面樣式影響；紙張大小就是標籤尺寸，等圖片解碼完才印 */
+  async function labelSys() {
+    const c = labelCfg(), src = drawLabel(document.createElement('canvas')).toDataURL('image/png');
     const n = Math.min(99, Math.max(1, parseInt(c.copies, 10) || 1));
-    box.innerHTML = `<style>@page ks-label { size: ${c.w}mm ${c.h}mm; margin: 0; }</style>` + Array.from({ length: n }, () => `<img src="${src}" alt="" style="width:${c.w}mm;height:${c.h}mm">`).join('');
-    window.print();
+    const fr = document.createElement('iframe');
+    fr.style.cssText = 'position:fixed;right:0;bottom:0;width:0;height:0;border:0';
+    fr.srcdoc = `<!doctype html><html><head><meta charset="utf-8"><title>標籤</title><style>
+      @page { size: ${c.w}mm ${c.h}mm; margin: 0; }
+      html, body { margin: 0; padding: 0; background: #fff; }
+      img { display: block; width: ${c.w}mm; height: ${c.h}mm; break-inside: avoid; }
+      img + img { break-before: page; }
+    </style></head><body>${Array.from({ length: n }, () => `<img src="${src}" alt="">`).join('')}</body></html>`;
+    await new Promise(res => { fr.onload = res; document.body.appendChild(fr); });
+    try {
+      const w = fr.contentWindow;
+      await Promise.all([...w.document.images].map(i => i.decode()));
+      w.focus();
+      w.print();
+    } catch (e) { toast('列印失敗：' + e.message, 'err'); }
+    setTimeout(() => fr.remove(), 60000);
   }
   async function labelBrowser() {
     const c = labelCfg(), f = { ...labelForm, made: labelMade(), exp: labelExp() };
@@ -3237,7 +3250,7 @@
         if (x && await confirmBox('刪除標籤', `確定要刪除「${x.name}」嗎？`, '刪除', true)) { c.saved = c.saved.filter(y => y !== x); db.deleted[x.id] = Date.now(); persist(); render(); }
         break;
       }
-      case 'label-sys': labelSys(); break;
+      case 'label-sys': await labelSys(); break;
       case 'label-browser': await labelBrowser(); break;
       case 'price-add': priceFilter = ''; db.prices.push(normPrice({})); db.pricesUpdatedAt = Date.now(); persist(); render(); { const ins = $$('[data-price$=".name"]'); ins.length && ins[ins.length - 1].focus(); } break;
       case 'price-rm': db.prices.splice(+el.dataset.k, 1); db.pricesUpdatedAt = Date.now(); persist(); render(); break;
