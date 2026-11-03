@@ -569,3 +569,19 @@ select { max-width: 100%; }
 @media print { .inv-page .print-only { display: block; } }
 .inv-table td.code input { min-width: 92px; color: var(--muted); font-size: .85rem; }
 .inv-table thead th.code { min-width: 92px; }
+
+/* 盤點品項編輯（仿叫貨系統表格） */
+.modal.inv-ed-modal { width: min(1100px, 100%); }
+.inv-ed-wrap { overflow: auto; max-height: 58vh; border: 1px solid var(--line); border-radius: 8px; margin: 8px 0 10px; }
+.inv-ed { border-collapse: collapse; width: 100%; min-width: 760px; font-size: .92rem; }
+.inv-ed th { position: sticky; top: 0; z-index: 1; background: var(--bg); text-align: left; font-weight: 600; padding: 8px 6px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+.inv-ed td { border-bottom: 1px solid var(--line); border-right: 1px solid var(--line); padding: 0; }
+.inv-ed td.no { text-align: center; color: var(--muted); padding: 0 8px; width: 36px; }
+.inv-ed input:not([type=checkbox]) { border: 0; border-radius: 0; background: transparent; width: 100%; min-height: 38px; padding: 4px 8px; }
+.inv-ed input:focus { outline: 2px solid var(--accent); outline-offset: -2px; }
+.inv-ed td.w-name { background: color-mix(in srgb, #ffe9a8 14%, transparent); }
+.inv-ed .w-code { width: 120px; } .inv-ed .w-spec { width: 130px; } .inv-ed .w-unit { width: 90px; }
+.inv-ed .w-price { width: 90px; } .inv-ed td.w-price input { text-align: right; }
+.inv-ed .w-off { width: 76px; text-align: center; } .inv-ed td.w-off input { width: 20px; height: 20px; }
+.inv-ed td.w-act { white-space: nowrap; width: 1%; border-right: 0; }
+.inv-ed td.w-act .icon { padding: 4px 6px; }

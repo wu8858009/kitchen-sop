@@ -2,7 +2,7 @@
 (() => {
   'use strict';
   const U = window.KUnits;
-  const APP_VERSION = '2.6.1';
+  const APP_VERSION = '2.6.2';
   const IS_DESKTOP = /[?&]desktop=1\b/.test(location.search);
 
   const $ = (s, el = document) => el.querySelector(s);
@@ -1474,8 +1474,8 @@
     v = v && typeof v === 'object' ? v : {};
     const has = Array.isArray(v.items);
     // 預設品項用固定 id，各裝置還沒改過清單時填的資料才對得起來
-    const items = has ? v.items.map(x => ({ id: String(x.id || uid()), name: String(x.name || ''), unit: String(x.unit || ''), code: String(x.code || '') }))
-      : INV_DEFAULT.split('|').map((l, i) => { const [name, unit] = l.split(' '); return { id: 'inv' + (i + 1), name, unit, code: '' }; });
+    const items = has ? v.items.map(x => ({ id: String(x.id || uid()), name: String(x.name || ''), unit: String(x.unit || ''), code: String(x.code || ''), spec: String(x.spec || ''), price: String(x.price == null ? '' : x.price), off: !!x.off }))
+      : INV_DEFAULT.split('|').map((l, i) => { const [name, unit] = l.split(' '); return { id: 'inv' + (i + 1), name, unit, code: '', spec: '', price: '', off: false }; });
     const weeks = {};
     if (v.weeks && typeof v.weeks === 'object') for (const [k, w] of Object.entries(v.weeks)) {
       if (!/^\d{4}-\d\d-\d\d$/.test(k) || !w || typeof w !== 'object') continue;
@@ -1509,7 +1509,7 @@
   function viewInv() {
     const today = new Date(), thisWeek = weekOf(today), td = invWeek === thisWeek ? (today.getDay() + 6) % 7 : -1;
     const day = invDayNow(), days = day < 0 ? [0, 1, 2, 3, 4, 5, 6] : [day];
-    const items = db.inv.items;
+    const items = db.inv.items.filter(x => !x.off);
     const head = days.map(i => `<th colspan="2" class="${i === td ? 'today' : ''}">星期${INV_DAYS[i]}<small>${mdOf(invDate(invWeek, i))}</small></th>`).join('');
     const sub = days.map(i => `<th class="${i === td ? 'today' : ''}">盤點</th><th class="${i === td ? 'today' : ''}">訂貨</th>`).join('');
     const rows = items.map(x => {
@@ -1551,7 +1551,7 @@
     return `<div class="inv-print"><div class="ip-title">盤點訂貨表　${invDate(wk, 0).getFullYear()}/${mdOf(invDate(wk, 0))} ～ ${mdOf(invDate(wk, 6))}</div>
       <table><thead><tr><th rowspan="2" class="nm">材料名稱</th><th rowspan="2">品號</th><th rowspan="2" class="u">單位</th>${INV_DAYS.map((d, i) => `<th colspan="2">星期${d} ${mdOf(invDate(wk, i))}</th>`).join('')}</tr>
         <tr>${INV_DAYS.map(() => '<th>盤點</th><th>訂貨</th>').join('')}</tr></thead>
-      <tbody>${db.inv.items.map(x => `<tr><th class="nm">${esc(x.name)}</th><td>${esc(x.code)}</td><td>${esc(x.unit)}</td>${Array.from({ length: 14 }, (_, k) => `<td>${esc(a(x.id)[k] || '')}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`;
+      <tbody>${db.inv.items.filter(x => !x.off).map(x => `<tr><th class="nm">${esc(x.name)}</th><td>${esc(x.code)}</td><td>${esc(x.unit)}</td>${Array.from({ length: 14 }, (_, k) => `<td>${esc(a(x.id)[k] || '')}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`;
   }
   async function buildInvPdf(wk) {
     await Promise.all(PDF_LIBS.map(loadJs));
@@ -1572,39 +1572,90 @@
   /** 某一天的訂貨單文字（傳 LINE 給廠商用） */
   function invOrderText(wk, i) {
     const a = id => invRow(wk, id);
-    const lines = db.inv.items.filter(x => (a(x.id)[i * 2 + 1] || '').trim()).map(x => `${x.code ? x.code + ' ' : ''}${x.name} ${a(x.id)[i * 2 + 1]}${/^[\d.\/\s]+$/.test(a(x.id)[i * 2 + 1]) ? ' ' + x.unit : ''}`);
+    const lines = db.inv.items.filter(x => !x.off && (a(x.id)[i * 2 + 1] || '').trim()).map(x => `${x.code ? x.code + ' ' : ''}${x.name} ${a(x.id)[i * 2 + 1]}${/^[\d.\/\s]+$/.test(a(x.id)[i * 2 + 1]) ? ' ' + x.unit : ''}`);
     return lines.length ? `${mdOf(invDate(wk, i))}（${INV_DAYS[i]}）訂貨\n${lines.join('\n')}` : '';
   }
 
+  // 品項編輯：仿叫貨系統的表格（# 品號 品名 規格 單位名稱 單價 暫不供貨）；可從 Excel／叫貨系統複製多列貼上
+  const INV_COLS = [['code', '品號', 'w-code'], ['name', '品名', 'w-name'], ['spec', '規格', 'w-spec'], ['unit', '單位名稱', 'w-unit'], ['price', '單價', 'w-price']];
+  function invEdRow(x, k) {
+    return `<tr data-id="${esc(x.id || '')}"><td class="no">${k + 1}</td>
+      ${INV_COLS.map(([f, , c]) => `<td class="${c}"><input data-f="${f}" value="${esc(x[f] || '')}" autocomplete="off"${f === 'price' ? ' inputmode="decimal"' : ''}${f === 'name' || f === 'unit' ? '' : ' data-ime="en"'}></td>`).join('')}
+      <td class="w-off"><input type="checkbox" data-f="off" ${x.off ? 'checked' : ''} aria-label="暫不供貨"></td>
+      <td class="w-act"><button class="icon" data-ed="up" title="上移">▲</button><button class="icon" data-ed="down" title="下移">▼</button><button class="icon" data-ed="rm" title="刪除">✕</button></td></tr>`;
+  }
   async function invEditItems() {
-    const txt = db.inv.items.map(x => (x.unit ? `${x.name} ${x.unit}` : x.name)).join('\n');
-    const v = await modal({
+    const pr = modal({
       title: '編輯盤點品項',
-      body: `<p class="small muted">一行一個品項，名稱後面空一格接單位（例如「紫洋蔥 斤」）；品號直接在表格的「品號」欄填。上下調整行的順序就是表格的順序；刪掉一行就不再顯示（已填的數字會保留，加回同名品項就會再出現）。</p>
-        <textarea id="invItemsTxt" rows="16" style="width:100%">${esc(txt)}</textarea>`,
-      buttons: [{ label: '取消', value: null }, { label: '儲存', cls: 'primary', value: m => m.querySelector('#invItemsTxt').value }],
+      body: `<p class="small muted">可直接從叫貨系統或 Excel 選取多列複製，點一格後貼上（Ctrl+V）會依欄位順序填入。勾「暫不供貨」的品項不會出現在盤點表；刪除的品項已填的數字會保留，加回同名品項就會再出現。</p>
+        <div class="inv-ed-wrap"><table class="inv-ed"><thead><tr><th>#</th>${INV_COLS.map(([, l, c]) => `<th class="${c}">${l}</th>`).join('')}<th class="w-off">暫不供貨</th><th></th></tr></thead>
+        <tbody id="invEd">${db.inv.items.map(invEdRow).join('')}</tbody></table></div>
+        <button class="btn" data-ed="add">＋ 新增品項</button>`,
+      buttons: [{ label: '取消', value: null }, { label: '儲存', cls: 'primary', value: m => [...m.querySelectorAll('#invEd tr')].map(tr => {
+        const o = { id: tr.dataset.id };
+        tr.querySelectorAll('[data-f]').forEach(i => { o[i.dataset.f] = i.type === 'checkbox' ? i.checked : i.value.trim(); });
+        return o;
+      }) }],
     });
-    if (v == null) return;
-    const byName = new Map(db.inv.items.map(x => [normName(x.name), x]));
-    // 以前刪掉的品項：從各週資料找回原本的 id，資料才接得回來
-    const old = db.inv.allNames || {};
-    const seen = new Set();
-    const items = [];
-    for (const line of v.split('\n')) {
-      const t = line.trim().replace(/\s+/g, ' ');
-      if (!t) continue;
-      const m = t.match(/^(.+?)\s+(\S{1,4})$/);
-      const name = m ? m[1] : t, unit = m ? m[2] : '';
+    const box = $('#modal'), tb = $('#invEd');
+    box.querySelector('.modal').classList.add('inv-ed-modal');
+    const renum = () => [...tb.rows].forEach((tr, k) => { tr.cells[0].textContent = k + 1; });
+    const addRow = () => { tb.insertAdjacentHTML('beforeend', invEdRow({}, tb.rows.length)); return tb.rows[tb.rows.length - 1]; };
+    box.querySelector('.modal-body').addEventListener('click', e => {
+      const b = e.target.closest('[data-ed]');
+      if (!b) return;
+      const tr = b.closest('tr');
+      if (b.dataset.ed === 'add') { const r = addRow(); r.querySelector('[data-f="code"]').focus(); r.scrollIntoView({ block: 'nearest' }); }
+      else if (b.dataset.ed === 'rm') tr.remove();
+      else if (b.dataset.ed === 'up' && tr.previousElementSibling) tr.parentNode.insertBefore(tr, tr.previousElementSibling);
+      else if (b.dataset.ed === 'down' && tr.nextElementSibling) tr.parentNode.insertBefore(tr.nextElementSibling, tr);
+      renum();
+    });
+    // Enter／↑↓：同一欄上下移動；最後一列按 Enter 新增一列
+    tb.addEventListener('keydown', e => {
+      const t = e.target;
+      if (!t.dataset.f || t.type === 'checkbox' || e.isComposing || e.keyCode === 229) return;
+      const d = e.key === 'Enter' || e.key === 'ArrowDown' ? 1 : e.key === 'ArrowUp' ? -1 : 0;
+      if (!d) return;
+      e.preventDefault(); e.stopPropagation();
+      const tr = t.closest('tr');
+      let nx = d > 0 ? tr.nextElementSibling : tr.previousElementSibling;
+      if (!nx && d > 0 && e.key === 'Enter') { nx = addRow(); renum(); }
+      if (nx) { const i = nx.querySelector(`[data-f="${t.dataset.f}"]`); i.focus(); i.select(); }
+    });
+    // 貼上多欄／多列（Tab、換行分隔）
+    tb.addEventListener('paste', e => {
+      const t = e.target, txt = (e.clipboardData || window.clipboardData).getData('text');
+      if (!t.dataset.f || !/[\t\n]/.test(txt.trim())) return;
+      e.preventDefault();
+      const fields = INV_COLS.map(c => c[0]);
+      let tr = t.closest('tr');
+      const c0 = Math.max(0, fields.indexOf(t.dataset.f));
+      txt.replace(/\r/g, '').split('\n').filter(l => l.trim()).forEach(line => {
+        if (!tr) tr = addRow();
+        line.split('\t').forEach((v, j) => { const f = fields[c0 + j], i = f && tr.querySelector(`[data-f="${f}"]`); if (i) i.value = v.trim(); });
+        tr = tr.nextElementSibling;
+      });
+      renum();
+    });
+    const rows = await pr;
+    if (rows == null) return;
+    // 以前刪掉的品項：用名稱找回原本的 id，資料才接得回來
+    const old = { ...db.inv.allNames };
+    db.inv.items.forEach(x => { old[normName(x.name)] = x.id; });
+    const seen = new Set(), items = [];
+    for (const r of rows) {
+      const name = (r.name || '').replace(/\s+/g, ' ');
+      if (!name) continue;
       const key = normName(name);
       if (seen.has(key)) continue;
       seen.add(key);
-      const prev = byName.get(key);
-      items.push({ id: prev ? prev.id : old[key] || uid(), name, unit, code: prev ? prev.code : (db.inv.allCodes || {})[key] || '' });
+      const prevCode = (db.inv.allCodes || {})[key];
+      items.push({ id: r.id || old[key] || uid(), name, code: r.code || (r.id ? '' : prevCode || ''), spec: r.spec, unit: r.unit, price: r.price, off: !!r.off });
     }
-    db.inv.allNames = { ...old };
     db.inv.allCodes = { ...db.inv.allCodes };
-    db.inv.items.forEach(x => { if (x.code) db.inv.allCodes[normName(x.name)] = x.code; });
-    db.inv.items.forEach(x => { db.inv.allNames[normName(x.name)] = x.id; });
+    db.inv.items.concat(items).forEach(x => { if (x.code) db.inv.allCodes[normName(x.name)] = x.code; });
+    db.inv.allNames = old;
     items.forEach(x => { db.inv.allNames[normName(x.name)] = x.id; });
     db.inv.items = items; db.inv.itemsAt = Date.now();
     persist(); render(); toast(`已更新，共 ${items.length} 個品項`);
@@ -2875,7 +2926,8 @@
     if (!t || !/^(INPUT|TEXTAREA)$/.test(t.tagName) || t.readOnly || t.disabled) return '';
     const type = (t.type || 'text').toLowerCase();
     if (t.tagName === 'INPUT' && !/^(text|search|number|url|password)$/.test(type)) return '';
-    if (t.lang === 'vi' || t.dataset.ime === 'none') return '';                  // 越南文欄位：不干涉
+    if (t.lang === 'vi' || t.dataset.ime === 'none') return '';
+    if (t.dataset.ime === 'en') return 'en';                  // 越南文欄位：不干涉
     if (/^(number|url|password)$/.test(type) || /^(decimal|numeric)$/.test(t.inputMode)) return 'en';
     if (t.id === 'mult' || t.id === 'target' || t.id === 'cloudUrl' || t.dataset.cheatMult != null || t.dataset.plan != null || t.dataset.inv != null) return 'en'; // 品號、數量
     if (/\.unit$/.test(t.dataset.bind || '') || /\.perUnit$/.test(t.dataset.price || '') || t.id === 'anchorVal') return ''; // 單位、量：中英都有
