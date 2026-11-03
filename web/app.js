@@ -2,7 +2,7 @@
 (() => {
   'use strict';
   const U = window.KUnits;
-  const APP_VERSION = '2.7.0';
+  const APP_VERSION = '2.7.1';
   const IS_DESKTOP = /[?&]desktop=1\b/.test(location.search);
 
   const $ = (s, el = document) => el.querySelector(s);
@@ -980,14 +980,15 @@
 
   // ---------------------------------------------------------------- 標籤（精臣 B3S）
   // 版面寬×高存在 settings.labels 跟著同步；品名、日期只留在這次操作，隔天不會印到舊日期
-  const LABEL_DEF = { w: 50, h: 30, days: '', who: '', copies: 1, density: 3, paper: 1, task: '' };
+  const LABEL_DEF = { w: 50, h: 30, days: '', who: '', copies: 1, density: 3, paper: 1, task: '', saved: [] };
   const LABEL_SIZES = [[30, 20], [40, 30], [50, 30], [50, 40], [60, 40], [70, 50], [72, 50]];
   const LABEL_DOTS = 8;                       // 203 dpi ≒ 每公釐 8 點
   const LABEL_MAX_W = 72;                     // B3S 列印頭 576 點 = 72 公釐
   const LABEL_SITE = 'https://wu8858009.github.io/kitchen-sop/';
-  const NIIM_LIB = 'vendor/niimbluelib.min.js?v=32';
+  const NIIM_LIB = 'vendor/niimbluelib.min.js?v=33';
   const labelForm = { name: '', qty: '', note: '', made: null, exp: '' };   // made：null = 今天，'' = 不印
   let niim = null;                            // 已連線的印表機
+  let labelQ = '';                            // 已儲存標籤的搜尋字
   const canUsb = () => !IS_DESKTOP && !!navigator.serial, canBt = () => !IS_DESKTOP && !!navigator.bluetooth;
   function labelCfg() {
     const c = Object.assign({}, LABEL_DEF, db.settings.labels || {});
@@ -1059,6 +1060,32 @@
     if (!canUsb() && !canBt()) return '<span class="muted small">這個瀏覽器不能直接連印表機（iPhone／iPad 都不行）。請按「存成圖片」，再到精臣 App 匯入圖片列印。</span>';
     return `<span class="muted small">先打開 B3S 電源，${canUsb() ? '接上 USB 線按「USB 連線」，或' : ''}按「藍牙連線」，再從清單選擇印表機。舊款 B3S 的藍牙可能連不上，請改用 USB。</span>`;
   }
+  // 已儲存的標籤：同品名算同一張，再存一次就更新；日期不存，載入時用當天重算
+  function labelSavedHtml() {
+    const q = normName(labelQ), rows = labelCfg().saved.filter(x => !q || normName(x.name).includes(q));
+    if (!rows.length) return `<p class="muted small">${labelCfg().saved.length ? '找不到符合的標籤。' : '還沒有儲存的標籤。填好內容後按「儲存這張標籤」，下次點一下就能帶入。'}</p>`;
+    return rows.map(x => `<div class="label-item">
+      <button class="label-load" data-act="label-load" data-id="${esc(x.id)}"><b>${esc(x.name)}</b>
+        <span class="muted small">${esc(x.w)}×${esc(x.h)}${x.qty ? ' · ' + esc(x.qty) : ''}${x.days !== '' ? ` · 保存 ${esc(x.days)} 天` : ''}</span></button>
+      <button class="icon danger" data-act="label-rm" data-id="${esc(x.id)}" title="刪除" aria-label="刪除 ${esc(x.name)}">✕</button></div>`).join('');
+  }
+  async function labelSave() {
+    const c = labelCfg(), f = labelForm, name = f.name.trim();
+    if (!name) { toast('請先填品名', 'err'); const n = $('[data-label="name"]'); if (n) n.focus(); return; }
+    const old = c.saved.find(x => normName(x.name) === normName(name));
+    const rec = { id: old ? old.id : uid(), name, qty: f.qty.trim(), note: f.note.trim(), who: String(c.who).trim(), days: String(c.days).trim(), noMade: f.made === '', w: c.w, h: c.h, copies: c.copies, at: Date.now() };
+    c.saved = [rec, ...c.saved.filter(x => x !== old)];
+    persist(); labelQ = ''; render();
+    toast(old ? `已更新「${name}」` : `已儲存「${name}」`);
+  }
+  function labelLoad(id) {
+    const c = labelCfg(), x = c.saved.find(y => y.id === id);
+    if (!x) return;
+    Object.assign(labelForm, { name: x.name, qty: x.qty, note: x.note, made: x.noMade ? '' : null, exp: '' });
+    Object.assign(c, { who: x.who, days: x.days, w: x.w, h: x.h, copies: x.copies });
+    persist(); render();
+    toast(`已帶入「${x.name}」`);
+  }
   function viewLabels() {
     const c = labelCfg(), f = labelForm;
     // 從電腦版帶過來的標籤內容
@@ -1079,8 +1106,13 @@
         ${IS_DESKTOP ? '<button class="btn primary" data-act="label-browser">🖨 用瀏覽器列印到 B3S</button>' : ''}
         ${canUsb() || canBt() ? '<button class="btn primary" data-act="label-print">🖨 列印</button>' : ''}</div>
       <div class="label-grid no-print">
+        <section class="card label-saved">
+          <div class="sec-head"><h2>已儲存的標籤</h2><span class="muted small">（${c.saved.length}）</span><div class="spacer"></div>
+            ${c.saved.length ? `<input id="labelQ" class="label-q" type="search" placeholder="搜尋品名…" value="${esc(labelQ)}">` : ''}</div>
+          <div class="label-list" id="labelList">${labelSavedHtml()}</div>
+        </section>
         <section class="card">
-          <h2>內容</h2>
+          <div class="sec-head"><h2>內容</h2><div class="spacer"></div><button class="btn sm primary" data-act="label-save">⭐ 儲存這張標籤</button></div>
           <div class="label-form">
             ${inp('name', '品名', f.name, 'list="dl-label" class="label-name"')}
             <datalist id="dl-label">${names.map(n => `<option value="${esc(n)}">`).join('')}</datalist>
@@ -2872,6 +2904,15 @@
     return r;
   }
 
+  // 已儲存的標籤逐筆合併（新的贏）；同品名只留最新一筆，刪過的不會被另一台裝置救回來
+  function mergeLabels(a, b, deleted) {
+    const map = new Map();
+    for (const x of [...(a || []), ...(b || [])]) {
+      const k = normName(x.name), o = map.get(k);
+      if (!(deleted[x.id] >= (x.at || 0)) && (!o || (x.at || 0) > (o.at || 0))) map.set(k, x);
+    }
+    return [...map.values()].sort((p, q) => (q.at || 0) - (p.at || 0));
+  }
   function mergeDb(local, remote) {
     const deleted = { ...remote.deleted };
     for (const [k, v] of Object.entries(local.deleted)) deleted[k] = Math.max(deleted[k] || 0, v);
@@ -2884,6 +2925,7 @@
     const localPrices = local.pricesUpdatedAt >= remote.pricesUpdatedAt;
     return {
       ...local, recipes, sops, deleted, inv: mergeInv(local.inv, remote.inv),
+      settings: { ...local.settings, labels: { ...LABEL_DEF, ...local.settings.labels, saved: mergeLabels((local.settings.labels || {}).saved, (remote.settings.labels || {}).saved, deleted) } },
       prices: localPrices ? local.prices : remote.prices,
       pricesUpdatedAt: Math.max(local.pricesUpdatedAt, remote.pricesUpdatedAt),
     };
@@ -3188,6 +3230,13 @@
       case 'label-disconnect': await labelDisconnect(); break;
       case 'label-print': await labelPrint(); break;
       case 'label-png': await labelPng(); break;
+      case 'label-save': await labelSave(); break;
+      case 'label-load': labelLoad(el.dataset.id); window.scrollTo(0, 0); break;
+      case 'label-rm': {
+        const c = labelCfg(), x = c.saved.find(y => y.id === el.dataset.id);
+        if (x && await confirmBox('刪除標籤', `確定要刪除「${x.name}」嗎？`, '刪除', true)) { c.saved = c.saved.filter(y => y !== x); db.deleted[x.id] = Date.now(); persist(); render(); }
+        break;
+      }
       case 'label-sys': labelSys(); break;
       case 'label-browser': await labelBrowser(); break;
       case 'price-add': priceFilter = ''; db.prices.push(normPrice({})); db.pricesUpdatedAt = Date.now(); persist(); render(); { const ins = $$('[data-price$=".name"]'); ins.length && ins[ins.length - 1].focus(); } break;
@@ -3306,6 +3355,7 @@
       return;
     }
     if (t.dataset.label) { onLabelInput(t); return; }
+    if (t.id === 'labelQ') { labelQ = t.value; $('#labelList').innerHTML = labelSavedHtml(); return; }
     if (t.dataset.cheatSteps != null) {
       const it = cheatCfg().items[+t.dataset.cheatSteps], r = it && getRecipe(it.recipeId);
       if (r) { cheatSetSteps(r, t.value); persist(); updateCheat(); }
@@ -3447,6 +3497,6 @@
 
   // 供桌面版自我測試使用
   window.__kitchenOcr = t => ocrCheck(parseOcrText(t), '');
-  window.__kitchen = { get db() { return db; }, persist, U, version: APP_VERSION, labelSend };
+  window.__kitchen = { get db() { return db; }, persist, U, version: APP_VERSION, labelSend, mergeLabels };
   init();
 })();

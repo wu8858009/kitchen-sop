@@ -613,3 +613,10 @@ select { max-width: 100%; }
 .label-sheet img { display: block; page: ks-label; break-after: page; }
 .label-sheet img:last-child { break-after: auto; }
 @media print { .label-page .print-only { display: block; } .label-page { padding: 0; } }
+.label-saved { grid-column: 1 / -1; }
+.label-q { width: min(240px, 100%); }
+.label-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 8px; max-height: 190px; overflow: auto; }
+.label-item { display: flex; align-items: center; gap: 4px; border: 1px solid var(--line); border-radius: 10px; background: var(--bg); min-width: 0; }
+.label-load { flex: 1; min-width: 0; display: flex; flex-direction: column; align-items: flex-start; gap: 0; padding: 6px 10px; border: 0; background: transparent; color: var(--fg); font: inherit; text-align: left; cursor: pointer; border-radius: 10px; }
+.label-load b, .label-load span { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.label-load:hover { background: var(--accent-soft); }
