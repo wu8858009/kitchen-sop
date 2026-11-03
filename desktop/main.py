@@ -233,7 +233,7 @@ def main():
     DATA_DIR.mkdir(parents=True, exist_ok=True)
     url = _serve_web()
     _window = webview.create_window(
-        APP_TITLE, url, js_api=Api(), min_size=(420, 560), text_select=True, **_fit_screen(),
+        APP_TITLE, url, js_api=Api(), min_size=(420, 560), text_select=True, maximized=True, **_fit_screen(),
     )
     selftest = os.environ.get("KITCHENSOP_SELFTEST")
     kwargs = dict(private_mode=False, storage_path=str(DATA_DIR / "webview"), gui="edgechromium")

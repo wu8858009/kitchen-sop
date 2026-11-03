@@ -103,7 +103,7 @@ h2 { font-size: 1.15rem; margin: 0 0 .6rem; }
 .cloud-form { grid-template-columns: 1fr; margin-bottom: 12px; }
 
 /* 頁面 */
-.page { max-width: 1000px; margin: 0 auto; padding: 16px; }
+.page { margin: 0 auto; padding: 16px clamp(16px, 2vw, 40px); } /* 內容跟著視窗寬度，不留大片空白 */
 .page-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: 12px; }
 .head-title { margin: 0; }
 .sticky-head { position: sticky; top: 55px; z-index: 10; background: var(--bg); padding: 8px 0; }
@@ -355,7 +355,6 @@ body:has(.dragging) { user-select: none; -webkit-user-select: none; }
 .cm-add select { flex: 1 1 220px; min-width: 0; }
 
 /* SOP 主資料 */
-.page.sop-page { max-width: 1280px; }
 .sop-top { display: grid; gap: 12px; }
 .sop-title input { font-size: 1.25rem; font-weight: 700; }
 .sop-review { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 10px; }
@@ -541,10 +540,9 @@ select { max-width: 100%; }
 .scale-row .fld { max-width: 100%; min-width: 0; }
 
 /* 盤點訂貨 */
-.page.inv-page { max-width: 1400px; }
 .inv-bar { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; flex-wrap: wrap; }
 .inv-bar b { font-size: 1.05rem; }
-.inv-wrap { overflow: auto; max-height: calc(100vh - 230px); border: 1px solid var(--line); border-radius: 10px; background: var(--card); }
+.inv-wrap { overflow: auto; max-height: calc(100dvh - 250px - var(--nav-h)); border: 1px solid var(--line); border-radius: 10px; background: var(--card); }
 .inv-table { border-collapse: separate; border-spacing: 0; width: 100%; font-size: .92rem; }
 .inv-table th, .inv-table td { border-bottom: 1px solid var(--line); border-right: 1px solid var(--line); padding: 0; text-align: center; }
 .inv-table thead th { position: sticky; top: 0; z-index: 2; background: var(--card); padding: 6px 4px; font-weight: 600; white-space: nowrap; }
@@ -590,3 +588,14 @@ select { max-width: 100%; }
 .inv-ed-foot { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; }
 .inv-ed td.w-act { white-space: nowrap; width: 1%; border-right: 0; }
 .inv-ed td.w-act .icon { padding: 4px 6px; }
+
+/* 寬螢幕：食譜的食材與步驟並排、設定分兩欄，避免一行拉太長 */
+@media screen and (min-width: 1200px) {
+  .recipe-page { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); column-gap: 14px; align-items: start; }
+  .recipe-page > * { grid-column: 1 / -1; }
+  .recipe-page > .rc-ing { grid-column: 1; }
+  .recipe-page > .rc-steps { grid-column: 2; }
+  .settings-page { columns: 2; column-gap: 14px; }
+  .settings-page > .page-head { column-span: all; }
+  .settings-page > * { break-inside: avoid; }
+}
