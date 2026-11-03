@@ -585,5 +585,8 @@ select { max-width: 100%; }
 .inv-ed .w-code { width: 120px; } .inv-ed .w-spec { width: 130px; } .inv-ed .w-unit { width: 90px; }
 .inv-ed .w-price { width: 90px; } .inv-ed td.w-price input { text-align: right; }
 .inv-ed .w-off { width: 76px; text-align: center; } .inv-ed td.w-off input { width: 20px; height: 20px; }
+.inv-ed tr.stopped td { opacity: .5; background: var(--bg); }
+.inv-ed tr[hidden] { display: none; }
+.inv-ed-foot { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; }
 .inv-ed td.w-act { white-space: nowrap; width: 1%; border-right: 0; }
 .inv-ed td.w-act .icon { padding: 4px 6px; }
