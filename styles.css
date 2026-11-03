@@ -599,3 +599,17 @@ select { max-width: 100%; }
   .settings-page > .page-head { column-span: all; }
   .settings-page > * { break-inside: avoid; }
 }
+
+/* 標籤 */
+.label-grid { display: grid; gap: 14px; align-items: start; grid-template-columns: minmax(0, 1fr); }
+.label-grid > .card { margin-bottom: 0; }
+@media screen and (min-width: 1000px) { .label-grid { grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr) minmax(0, .8fr); } }
+.label-form { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; }
+.label-form .fld:has(.label-name) { grid-column: 1 / -1; }
+.label-stage { display: flex; justify-content: center; padding: 14px; background: var(--bg); border: 1px solid var(--line); border-radius: 10px; }
+.label-cv { display: block; background: #fff; border-radius: 4px; box-shadow: var(--shadow); max-width: 100%; }
+.label-status { margin: 8px 0; }
+.label-adv { margin-top: 10px; }
+.label-sheet img { display: block; page: ks-label; break-after: page; }
+.label-sheet img:last-child { break-after: auto; }
+@media print { .label-page .print-only { display: block; } .label-page { padding: 0; } }

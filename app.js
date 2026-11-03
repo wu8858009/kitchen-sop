@@ -2,7 +2,7 @@
 (() => {
   'use strict';
   const U = window.KUnits;
-  const APP_VERSION = '2.6.5';
+  const APP_VERSION = '2.7.0';
   const IS_DESKTOP = /[?&]desktop=1\b/.test(location.search);
 
   const $ = (s, el = document) => el.querySelector(s);
@@ -408,6 +408,7 @@
       case 'sop': app.innerHTML = viewSop(route.id); updateSopCalc(); break;
       case 'inv': app.innerHTML = viewInv(); fitInv(); break;
       case 'prices': app.innerHTML = viewPrices(); break;
+      case 'labels': app.innerHTML = viewLabels(); updateLabel(); break;
       case 'settings': app.innerHTML = viewSettings(); fillSettingsInfo(); setSync(cloudState.s, cloudState.msg); break;
       default: app.innerHTML = viewList(); updateList();
     }
@@ -975,6 +976,252 @@
     el.innerHTML = `<table class="ing-table plan-table"><tbody>${rows.join('')}</tbody></table>
       <div class="cost-box"><div><span class="muted">食材總成本</span><b>${money(total)}</b></div>
       ${missing ? `<div class="warn small">* 有 ${missing} 項食材缺少單價或單位不符，未完整計入。</div>` : ''}</div>`;
+  }
+
+  // ---------------------------------------------------------------- 標籤（精臣 B3S）
+  // 版面寬×高存在 settings.labels 跟著同步；品名、日期只留在這次操作，隔天不會印到舊日期
+  const LABEL_DEF = { w: 50, h: 30, days: '', who: '', copies: 1, density: 3, paper: 1, task: '' };
+  const LABEL_SIZES = [[30, 20], [40, 30], [50, 30], [50, 40], [60, 40], [70, 50], [72, 50]];
+  const LABEL_DOTS = 8;                       // 203 dpi ≒ 每公釐 8 點
+  const LABEL_MAX_W = 72;                     // B3S 列印頭 576 點 = 72 公釐
+  const LABEL_SITE = 'https://wu8858009.github.io/kitchen-sop/';
+  const NIIM_LIB = 'vendor/niimbluelib.min.js?v=32';
+  const labelForm = { name: '', qty: '', note: '', made: null, exp: '' };   // made：null = 今天，'' = 不印
+  let niim = null;                            // 已連線的印表機
+  const canUsb = () => !IS_DESKTOP && !!navigator.serial, canBt = () => !IS_DESKTOP && !!navigator.bluetooth;
+  function labelCfg() {
+    const c = Object.assign({}, LABEL_DEF, db.settings.labels || {});
+    return (db.settings.labels = c);
+  }
+  const labelMade = () => (labelForm.made == null ? ymd(new Date()) : labelForm.made);
+  function labelExp() {
+    const d = parseFloat(labelCfg().days), m = labelMade();
+    if (!(d >= 0) || !m) return labelForm.exp;
+    const x = new Date(m + 'T00:00:00');
+    x.setDate(x.getDate() + Math.round(d));
+    return ymd(x);
+  }
+  const labelDate = s => String(s || '').replace(/-/g, '/');
+
+  /** 畫在 canvas：1 點 = 印表機 1 點，純黑白，所以預覽就是印出來的樣子 */
+  function drawLabel(cv) {
+    const c = labelCfg(), f = labelForm, W = Math.round(c.w) * LABEL_DOTS, H = Math.round(c.h) * LABEL_DOTS;
+    cv.width = W; cv.height = H;
+    const g = cv.getContext('2d'), pad = 2 * LABEL_DOTS, FONT = '"Microsoft JhengHei", "PingFang TC", "Noto Sans TC", sans-serif';
+    g.fillStyle = '#fff'; g.fillRect(0, 0, W, H);
+    g.fillStyle = '#000'; g.textBaseline = 'top';
+    const rows = [];
+    if (f.name.trim()) rows.push({ t: f.name.trim(), k: 1.7 });
+    if (f.qty.trim()) rows.push({ t: '份量 ' + f.qty.trim(), k: 1 });
+    if (labelMade()) rows.push({ t: '製造 ' + labelDate(labelMade()), k: 1 });
+    if (labelExp()) rows.push({ t: '到期 ' + labelDate(labelExp()), k: 1.2 });
+    if (String(c.who).trim()) rows.push({ t: '人員 ' + String(c.who).trim(), k: 1 });
+    if (f.note.trim()) rows.push({ t: f.note.trim(), k: 1 });
+    if (!rows.length) return cv;
+    // 字從大往小試，直到全部排得下
+    const maxW = W - pad * 2, maxH = H - pad * 2;
+    let size = Math.floor(maxH / 1.2);
+    const fit = s => {
+      let h = 0;
+      for (const r of rows) {
+        g.font = `bold ${Math.round(s * r.k)}px ${FONT}`;
+        if (g.measureText(r.t).width > maxW) return false;
+        h += s * r.k * 1.2;
+      }
+      return h <= maxH;
+    };
+    while (size > 10 && !fit(size)) size--;
+    const total = rows.reduce((n, r) => n + size * r.k * 1.2, 0);
+    let y = Math.max(pad, (H - total) / 2);
+    for (const r of rows) {
+      g.font = `bold ${Math.round(size * r.k)}px ${FONT}`;
+      g.fillText(r.t, pad, Math.round(y), maxW);
+      y += size * r.k * 1.2;
+    }
+    // 熱感紙只有黑白，灰階的字邊直接二值化
+    const im = g.getImageData(0, 0, W, H), px = im.data;
+    for (let i = 0; i < px.length; i += 4) { const v = px[i] < 160 ? 0 : 255; px[i] = px[i + 1] = px[i + 2] = v; px[i + 3] = 255; }
+    g.putImageData(im, 0, 0);
+    return cv;
+  }
+  function updateLabel() {
+    const cv = $('#labelCv');
+    if (!cv) return;
+    drawLabel(cv);
+    const c = labelCfg(), ex = $('#labelExp');
+    cv.style.aspectRatio = `${c.w} / ${c.h}`;
+    cv.style.width = `min(100%, ${c.w * 6}px)`;
+    if (ex && document.activeElement !== ex) ex.value = labelExp();
+  }
+  function labelStatus() {
+    if (niim) return `<span class="badge">🟢 已連線：${esc((niim.getModelMetadata() || {}).model || '印表機')}</span>`;
+    if (IS_DESKTOP) return '<span class="muted small">電腦版視窗不能直接連印表機，按右上角按鈕會把這張標籤帶到瀏覽器，用 USB 或藍牙列印（要用 Edge 或 Chrome）。</span>';
+    if (!canUsb() && !canBt()) return '<span class="muted small">這個瀏覽器不能直接連印表機（iPhone／iPad 都不行）。請按「存成圖片」，再到精臣 App 匯入圖片列印。</span>';
+    return `<span class="muted small">先打開 B3S 電源，${canUsb() ? '接上 USB 線按「USB 連線」，或' : ''}按「藍牙連線」，再從清單選擇印表機。舊款 B3S 的藍牙可能連不上，請改用 USB。</span>`;
+  }
+  function viewLabels() {
+    const c = labelCfg(), f = labelForm;
+    // 從電腦版帶過來的標籤內容
+    if (route.id) {
+      try {
+        const j = JSON.parse(route.id);
+        Object.assign(c, j.cfg || {}); Object.assign(f, j.form || {}); persist();
+      } catch (e) { /* 內容壞掉就當作沒帶 */ }
+      history.replaceState(null, '', '#/labels');
+      route = { name: 'labels', id: null };
+    }
+    const names = [...new Set([...db.recipes.map(r => r.name), ...db.sops.map(o => o.title), ...db.inv.items.map(x => x.name)].map(x => String(x || '').trim()).filter(Boolean))];
+    const sized = LABEL_SIZES.some(([w, h]) => w === c.w && h === c.h);
+    const inp = (k, label, val, attr = '') => `<label class="fld">${label}<input data-label="${k}" value="${esc(val)}" autocomplete="off" ${attr}></label>`;
+    return `<div class="page label-page">
+      <div class="page-head no-print"><h1 class="head-title">標籤</h1><div class="spacer"></div>
+        ${niim ? '<button class="btn" data-act="label-disconnect">中斷連線</button>' : `${canUsb() ? '<button class="btn" data-act="label-connect" data-via="usb">🔌 USB 連線</button>' : ''}${canBt() ? '<button class="btn" data-act="label-connect" data-via="bt">📶 藍牙連線</button>' : ''}`}
+        ${IS_DESKTOP ? '<button class="btn primary" data-act="label-browser">🖨 用瀏覽器列印到 B3S</button>' : ''}
+        ${canUsb() || canBt() ? '<button class="btn primary" data-act="label-print">🖨 列印</button>' : ''}</div>
+      <div class="label-grid no-print">
+        <section class="card">
+          <h2>內容</h2>
+          <div class="label-form">
+            ${inp('name', '品名', f.name, 'list="dl-label" class="label-name"')}
+            <datalist id="dl-label">${names.map(n => `<option value="${esc(n)}">`).join('')}</datalist>
+            ${inp('qty', '份量（可留空）', f.qty, 'placeholder="例如 2 公斤"')}
+            ${inp('made', '製造日期（清空就不印）', labelMade(), 'type="date"')}
+            ${inp('days', '保存天數', c.days, 'inputmode="numeric" data-ime="en" placeholder="例如 3"')}
+            <label class="fld">到期日<input id="labelExp" data-label="exp" type="date" value="${esc(labelExp())}"></label>
+            ${inp('who', '人員（可留空）', c.who)}
+            ${inp('note', '備註（可留空）', f.note, 'placeholder="例如 冷藏 0～7°C"')}
+            ${inp('copies', '張數', c.copies, 'inputmode="numeric" data-ime="en"')}
+          </div>
+        </section>
+        <section class="card">
+          <h2>預覽</h2>
+          <div class="label-stage"><canvas id="labelCv" class="label-cv"></canvas></div>
+          <p class="small muted">${esc(c.w)} × ${esc(c.h)} 公釐，黑白 203 dpi，和印出來一樣。</p>
+          <div class="label-status" id="labelStatus">${labelStatus()}</div>
+          <div class="btn-row">
+            <button class="btn" data-act="label-png">💾 存成圖片</button>
+            ${IS_MOBILE ? '' : '<button class="btn" data-act="label-sys">🖨 系統列印</button>'}
+          </div>
+        </section>
+        <section class="card">
+          <h2>紙張</h2>
+          <div class="label-form">
+            <label class="fld">標籤紙尺寸（寬 × 高）<select data-label="size">
+              ${LABEL_SIZES.map(([w, h]) => `<option value="${w}x${h}" ${w === c.w && h === c.h ? 'selected' : ''}>${w} × ${h} 公釐${w === LABEL_MAX_W ? '（75 寬的紙）' : ''}</option>`).join('')}
+              <option value="" ${sized ? '' : 'selected'}>自訂</option></select></label>
+            ${inp('w', '寬（公釐，最大 72）', c.w, 'inputmode="numeric" data-ime="en"')}
+            ${inp('h', '高（公釐）', c.h, 'inputmode="numeric" data-ime="en"')}
+            <label class="fld">紙張種類<select data-label="paper">
+              <option value="1" ${+c.paper === 1 ? 'selected' : ''}>間隙紙（一般貼紙）</option>
+              <option value="2" ${+c.paper === 2 ? 'selected' : ''}>黑標紙</option>
+              <option value="3" ${+c.paper === 3 ? 'selected' : ''}>連續紙</option>
+              <option value="5" ${+c.paper === 5 ? 'selected' : ''}>透明紙</option></select></label>
+            <label class="fld">濃度<select data-label="density">${[1, 2, 3, 4, 5].map(d => `<option ${+c.density === d ? 'selected' : ''}>${d}</option>`).join('')}</select></label>
+          </div>
+          <details class="label-adv"><summary>印不出來時</summary>
+            <p class="small muted">預設用 B1 的傳輸方式。如果連得上卻印不出來，可以換 B21_V1 再試。</p>
+            <label class="fld">傳輸方式<select data-label="task">
+              <option value="" ${c.task ? '' : 'selected'}>自動</option>
+              ${['B1', 'B21_V1'].map(t => `<option ${c.task === t ? 'selected' : ''}>${t}</option>`).join('')}</select></label>
+          </details>
+        </section>
+      </div>
+      <div class="print-only label-sheet" id="labelSheet"></div>
+    </div>`;
+  }
+  function onLabelInput(t) {
+    const c = labelCfg(), k = t.dataset.label, v = t.value;
+    if (k === 'name' || k === 'qty' || k === 'note') labelForm[k] = v;
+    else if (k === 'made') labelForm.made = v;
+    else if (k === 'exp') { labelForm.exp = v; c.days = ''; const d = $('[data-label="days"]'); if (d) d.value = ''; }
+    else if (k === 'size') {
+      if (!v) return;
+      const [w, h] = v.split('x').map(Number);
+      c.w = w; c.h = h; persist(); render(); return;
+    }
+    else if (k === 'w' || k === 'h') {
+      const n = parseFloat(v), lo = k === 'w' ? 15 : 10, hi = k === 'w' ? LABEL_MAX_W : 200;
+      if (!(n >= lo && n <= hi)) { t.classList.add('invalid'); return; }
+      t.classList.remove('invalid');
+      c[k] = Math.round(n);
+    }
+    else c[k] = k === 'paper' || k === 'density' || k === 'copies' ? Math.max(1, parseInt(v, 10) || 1) : v;
+    persist(); updateLabel();
+  }
+
+  async function labelDisconnect() {
+    const cl = niim;
+    niim = null;
+    try { await cl.disconnect(); } catch (e) { /* 已經斷了 */ }
+    render();
+  }
+  async function labelConnect(via) {
+    await loadJs(NIIM_LIB);
+    const lib = window.niimbluelib, cl = via === 'usb' ? new lib.NiimbotSerialClient() : new lib.NiimbotBluetoothClient();
+    cl.on('disconnect', () => { if (niim === cl) { niim = null; if (route.name === 'labels') render(); toast('印表機已斷線', 'err'); } });
+    await cl.connect();
+    niim = cl;
+    if (route.name === 'labels') render();
+    toast('已連線：' + ((cl.getModelMetadata() || {}).model || '印表機'));
+    return true;
+  }
+  /** 送一張標籤到印表機；cl 可替換成測試用的假印表機 */
+  async function labelSend(cl) {
+    const c = labelCfg(), lib = window.niimbluelib, cv = drawLabel(document.createElement('canvas')), meta = cl.getModelMetadata() || {};
+    if (meta.printheadPixels && cv.width > meta.printheadPixels) throw new Error(`標籤寬度超過印表機的 ${Math.floor(meta.printheadPixels / LABEL_DOTS)} 公釐`);
+    const img = lib.ImageEncoder.encodeCanvas(cv, lib.PageColorType.SingleColor, meta.printDirection || 'top');
+    const copies = Math.max(1, parseInt(c.copies, 10) || 1);
+    // B3S 不在函式庫的對照表裡，回報可用的是 B1；D110 會印不停，所以不交給自動判斷
+    const auto = /^B3S/.test(meta.model || '') ? 'B1' : cl.getPrintTaskType() || 'B1';
+    const task = cl.protocol.newPrintTask(c.task || auto, {
+      totalPages: copies, density: +c.density || 3, labelType: +c.paper || 1, pageColor: lib.PageColorType.SingleColor, statusPollIntervalMs: 100, statusTimeoutMs: 8000,
+    });
+    try {
+      await task.printInit();
+      await task.printPage(img, copies);
+      await task.waitForPageFinished();
+      await task.waitForFinished();
+    } finally { await cl.protocol.printEnd(); }
+    return copies;
+  }
+  async function labelPrint() {
+    if (!labelForm.name.trim()) { toast('請先填品名', 'err'); const n = $('[data-label="name"]'); if (n) n.focus(); return; }
+    if (!niim) return toast('請先連線印表機', 'err');
+    try {
+      toast('列印中…');
+      toast(`已列印 ${await labelSend(niim)} 張`);
+    } catch (e) {
+      toast('列印失敗：' + e.message, 'err');
+    }
+  }
+  async function labelPng() {
+    const cv = drawLabel(document.createElement('canvas')), name = `標籤_${labelForm.name.trim() || '未命名'}.png`.replace(/[\\/:*?"<>|]/g, '_');
+    if (IS_DESKTOP) {
+      const p = await (await desktopApi()).export_image(cv.toDataURL('image/png'), name);
+      if (p) toast('已存到 ' + p);
+      return;
+    }
+    const blob = await new Promise(r => cv.toBlob(r, 'image/png')), file = new File([blob], name, { type: 'image/png' });
+    const canShare = (() => { try { return IS_MOBILE && !!navigator.canShare && navigator.canShare({ files: [file] }); } catch (e) { return false; } })();
+    if (canShare) {
+      try { await navigator.share({ files: [file], title: name }); return; } catch (e) { if (e.name === 'AbortError') return; }
+    }
+    const url = URL.createObjectURL(file), a = document.createElement('a');
+    a.href = url; a.download = name; document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 60000);
+  }
+  /** 系統列印：紙張大小設成標籤尺寸，給有裝 Windows 驅動程式的標籤機用 */
+  function labelSys() {
+    const c = labelCfg(), box = $('#labelSheet'), src = drawLabel(document.createElement('canvas')).toDataURL('image/png');
+    const n = Math.min(99, Math.max(1, parseInt(c.copies, 10) || 1));
+    box.innerHTML = `<style>@page ks-label { size: ${c.w}mm ${c.h}mm; margin: 0; }</style>` + Array.from({ length: n }, () => `<img src="${src}" alt="" style="width:${c.w}mm;height:${c.h}mm">`).join('');
+    window.print();
+  }
+  async function labelBrowser() {
+    const c = labelCfg(), f = { ...labelForm, made: labelMade(), exp: labelExp() };
+    const job = JSON.stringify({ cfg: { w: c.w, h: c.h, days: c.days, who: c.who, copies: c.copies, density: c.density, paper: c.paper, task: c.task }, form: f });
+    await (await desktopApi()).open_url(LABEL_SITE + '#/labels/' + encodeURIComponent(job));
+    toast('已在瀏覽器開啟；要用 Edge 或 Chrome 才能連印表機');
   }
 
   // ---------------------------------------------------------------- 小抄
@@ -2161,6 +2408,7 @@
     if (route.name === 'cheat') return clickAct('cheat-print');
     if (route.name === 'sop') return clickAct('sop-print');
     if (route.name === 'inv') return clickAct('inv-print');
+    if (route.name === 'labels') return clickAct('label-print') || clickAct('label-browser');
     if (/^(r|plan)$/.test(route.name)) { flush(); window.print(); return true; }
     return false;
   }
@@ -2187,7 +2435,7 @@
     ['Alt+2', '切到「SOP」', '', () => go('#/sops')],
     ['Alt+3', '切到「備料單」', '', () => go('#/plan')],
     ['Alt+4', '切到「小抄」', '', () => go('#/cheat')],
-    ['Alt+5', '切到「單價表」', '', () => go('#/prices')],
+    ['Alt+5', '切到「標籤」', '', () => go('#/labels')],
     ['Alt+6', '切到「盤點訂貨」', '', () => go('#/inv')],
     ['Alt+7', '切到「設定」', '', () => go('#/settings')],
     ['Ctrl+F', '搜尋（食譜／SOP／單價表）', '', focusSearch],
@@ -2227,7 +2475,7 @@
     ['Alt+I', '從食譜帶入食材', 'prices', () => clickAct('price-import')],
     ['Alt+X', '匯出備份', 'settings', () => clickAct('export')],
   ];
-  const PAGE_NAMES = { '': '全部頁面', r: '食譜頁', edit: '編輯食譜', sop: 'SOP 表單', sops: 'SOP 列表', plan: '備料單', cheat: '小抄', prices: '單價表', inv: '盤點訂貨', settings: '設定' };
+  const PAGE_NAMES = { '': '全部頁面', r: '食譜頁', edit: '編輯食譜', sop: 'SOP 表單', sops: 'SOP 列表', plan: '備料單', cheat: '小抄', prices: '單價表', labels: '標籤', inv: '盤點訂貨', settings: '設定' };
 
   function keyName(e) {
     const k = e.key === ' ' ? 'Space' : e.key.length === 1 ? e.key.toUpperCase() : e.key;
@@ -2355,6 +2603,9 @@
     return `<div class="page settings-page">
       <div class="page-head"><h1 class="head-title">設定與資料</h1><div class="spacer"></div>
         ${IS_MOBILE ? '' : '<button class="btn" data-act="kbd-help">⌨ 快捷鍵（F1）</button>'}</div>
+      <section class="card"><h2>食材單價表</h2>
+        <p class="muted small">食譜和小抄的成本用這裡的單價計算。</p>
+        <a class="btn" href="#/prices">💲 開啟單價表（${db.prices.length} 筆）</a></section>
       ${viewRingSettings()}
       <section class="card">
         <h2>單位顯示</h2>
@@ -2931,6 +3182,14 @@
       case 'cheat-clear': if (await confirmBox('清空小抄', '確定要清空所有小抄卡片嗎？（食譜不會被刪除）', '清空', true)) { cheatCfg().items = []; persist(); refreshCheat(); } break;
       case 'plan-clear': if (await confirmBox('清空備料單', '確定要清空備料單嗎？（食譜不會被刪除）', '清空', true)) { db.plan = []; persist(); render(); } break;
       // 單價
+      case 'label-connect':
+        try { await labelConnect(el.dataset.via); } catch (e) { if (e.name !== 'NotFoundError') toast('連線失敗：' + e.message, 'err'); }
+        break;
+      case 'label-disconnect': await labelDisconnect(); break;
+      case 'label-print': await labelPrint(); break;
+      case 'label-png': await labelPng(); break;
+      case 'label-sys': labelSys(); break;
+      case 'label-browser': await labelBrowser(); break;
       case 'price-add': priceFilter = ''; db.prices.push(normPrice({})); db.pricesUpdatedAt = Date.now(); persist(); render(); { const ins = $$('[data-price$=".name"]'); ins.length && ins[ins.length - 1].focus(); } break;
       case 'price-rm': db.prices.splice(+el.dataset.k, 1); db.pricesUpdatedAt = Date.now(); persist(); render(); break;
       case 'price-import': {
@@ -3046,6 +3305,7 @@
       if (it && m) { it.mult = m; persist(); const r = getRecipe(it.recipeId); $('#cy' + k).textContent = `${fmt(r.yieldQty * m)} ${r.yieldUnit}`; updateCheat(); }
       return;
     }
+    if (t.dataset.label) { onLabelInput(t); return; }
     if (t.dataset.cheatSteps != null) {
       const it = cheatCfg().items[+t.dataset.cheatSteps], r = it && getRecipe(it.recipeId);
       if (r) { cheatSetSteps(r, t.value); persist(); updateCheat(); }
@@ -3187,6 +3447,6 @@
 
   // 供桌面版自我測試使用
   window.__kitchenOcr = t => ocrCheck(parseOcrText(t), '');
-  window.__kitchen = { get db() { return db; }, persist, U, version: APP_VERSION };
+  window.__kitchen = { get db() { return db; }, persist, U, version: APP_VERSION, labelSend };
   init();
 })();
