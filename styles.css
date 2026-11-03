@@ -617,3 +617,4 @@ select { max-width: 100%; }
 .label-load { flex: 1; min-width: 0; display: flex; flex-direction: column; align-items: flex-start; gap: 0; padding: 6px 10px; border: 0; background: transparent; color: var(--fg); font: inherit; text-align: left; cursor: pointer; border-radius: 10px; }
 .label-load b, .label-load span { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .label-load:hover { background: var(--accent-soft); }
+.label-a4-opt { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; margin-top: 8px; }

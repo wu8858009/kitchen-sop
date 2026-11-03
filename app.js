@@ -2,7 +2,7 @@
 (() => {
   'use strict';
   const U = window.KUnits;
-  const APP_VERSION = '2.7.2';
+  const APP_VERSION = '2.7.3';
   const IS_DESKTOP = /[?&]desktop=1\b/.test(location.search);
 
   const $ = (s, el = document) => el.querySelector(s);
@@ -980,12 +980,12 @@
 
   // ---------------------------------------------------------------- 標籤（精臣 B3S）
   // 版面寬×高存在 settings.labels 跟著同步；品名、日期只留在這次操作，隔天不會印到舊日期
-  const LABEL_DEF = { w: 50, h: 30, days: '', who: '', copies: 1, density: 3, paper: 1, task: '', saved: [] };
+  const LABEL_DEF = { w: 50, h: 30, days: '', who: '', copies: 1, density: 3, paper: 1, task: '', a4fill: true, saved: [] };
   const LABEL_SIZES = [[30, 20], [40, 30], [50, 30], [50, 40], [60, 40], [70, 50], [72, 50]];
   const LABEL_DOTS = 8;                       // 203 dpi ≒ 每公釐 8 點
   const LABEL_MAX_W = 72;                     // B3S 列印頭 576 點 = 72 公釐
   const LABEL_SITE = 'https://wu8858009.github.io/kitchen-sop/';
-  const NIIM_LIB = 'vendor/niimbluelib.min.js?v=34';
+  const NIIM_LIB = 'vendor/niimbluelib.min.js?v=35';
   const labelForm = { name: '', qty: '', note: '', made: null, exp: '' };   // made：null = 今天，'' = 不印
   let niim = null;                            // 已連線的印表機
   let labelQ = '';                            // 已儲存標籤的搜尋字
@@ -1005,10 +1005,10 @@
   const labelDate = s => String(s || '').replace(/-/g, '/');
 
   /** 畫在 canvas：1 點 = 印表機 1 點，純黑白，所以預覽就是印出來的樣子 */
-  function drawLabel(cv) {
-    const c = labelCfg(), f = labelForm, W = Math.round(c.w) * LABEL_DOTS, H = Math.round(c.h) * LABEL_DOTS;
+  function drawLabel(cv, dots = LABEL_DOTS) {
+    const c = labelCfg(), f = labelForm, W = Math.round(c.w) * dots, H = Math.round(c.h) * dots;
     cv.width = W; cv.height = H;
-    const g = cv.getContext('2d'), pad = 2 * LABEL_DOTS, FONT = '"Microsoft JhengHei", "PingFang TC", "Noto Sans TC", sans-serif';
+    const g = cv.getContext('2d'), pad = 2 * dots, FONT = '"Microsoft JhengHei", "PingFang TC", "Noto Sans TC", sans-serif';
     g.fillStyle = '#fff'; g.fillRect(0, 0, W, H);
     g.fillStyle = '#000'; g.textBaseline = 'top';
     const rows = [];
@@ -1039,6 +1039,7 @@
       g.fillText(r.t, pad, Math.round(y), maxW);
       y += size * r.k * 1.2;
     }
+    if (dots !== LABEL_DOTS) return cv;     // A4 用一般印表機，解析度高，不必二值化
     // 熱感紙只有黑白，灰階的字邊直接二值化
     const im = g.getImageData(0, 0, W, H), px = im.data;
     for (let i = 0; i < px.length; i += 4) { const v = px[i] < 160 ? 0 : 255; px[i] = px[i + 1] = px[i + 2] = v; px[i + 3] = 255; }
@@ -1053,6 +1054,8 @@
     cv.style.aspectRatio = `${c.w} / ${c.h}`;
     cv.style.width = `min(100%, ${c.w * 6}px)`;
     if (ex && document.activeElement !== ex) ex.value = labelExp();
+    const a4 = $('#labelA4');
+    if (a4) { const g = a4Grid(); a4.textContent = `A4 一頁可排 ${g.cols} × ${g.rows} = ${g.cols * g.rows} 張`; }
   }
   function labelStatus() {
     if (niim) return `<span class="badge">🟢 已連線：${esc((niim.getModelMetadata() || {}).model || '印表機')}</span>`;
@@ -1133,6 +1136,11 @@
           <div class="btn-row">
             <button class="btn" data-act="label-png">💾 存成圖片</button>
             ${IS_MOBILE ? '' : '<button class="btn" data-act="label-sys">🖨 系統列印</button>'}
+            <button class="btn" data-act="label-a4">📄 A4 列印</button>
+          </div>
+          <div class="label-a4-opt">
+            <label class="ck-lbl"><input type="checkbox" data-label="a4fill" ${c.a4fill ? 'checked' : ''}> A4 排滿整頁（不勾就照張數）</label>
+            <span class="muted small" id="labelA4"></span>
           </div>
         </section>
         <section class="card">
@@ -1162,7 +1170,8 @@
   }
   function onLabelInput(t) {
     const c = labelCfg(), k = t.dataset.label, v = t.value;
-    if (k === 'name' || k === 'qty' || k === 'note') labelForm[k] = v;
+    if (k === 'a4fill') c.a4fill = t.checked;
+    else if (k === 'name' || k === 'qty' || k === 'note') labelForm[k] = v;
     else if (k === 'made') labelForm.made = v;
     else if (k === 'exp') { labelForm.exp = v; c.days = ''; const d = $('[data-label="days"]'); if (d) d.value = ''; }
     else if (k === 'size') {
@@ -1245,14 +1254,17 @@
   async function labelSys() {
     const c = labelCfg(), src = drawLabel(document.createElement('canvas')).toDataURL('image/png');
     const n = Math.min(99, Math.max(1, parseInt(c.copies, 10) || 1));
-    const fr = document.createElement('iframe');
-    fr.style.cssText = 'position:fixed;right:0;bottom:0;width:0;height:0;border:0';
-    fr.srcdoc = `<!doctype html><html><head><meta charset="utf-8"><title>標籤</title><style>
+    await printFrame(`<!doctype html><html><head><meta charset="utf-8"><title>標籤</title><style>
       @page { size: ${c.w}mm ${c.h}mm; margin: 0; }
       html, body { margin: 0; padding: 0; background: #fff; }
       img { display: block; width: ${c.w}mm; height: ${c.h}mm; break-inside: avoid; }
       img + img { break-before: page; }
-    </style></head><body>${Array.from({ length: n }, () => `<img src="${src}" alt="">`).join('')}</body></html>`;
+    </style></head><body>${Array.from({ length: n }, () => `<img src="${src}" alt="">`).join('')}</body></html>`);
+  }
+  async function printFrame(html) {
+    const fr = document.createElement('iframe');
+    fr.style.cssText = 'position:fixed;right:0;bottom:0;width:0;height:0;border:0';
+    fr.srcdoc = html;
     await new Promise(res => { fr.onload = res; document.body.appendChild(fr); });
     try {
       const w = fr.contentWindow;
@@ -1261,6 +1273,44 @@
       w.print();
     } catch (e) { toast('列印失敗：' + e.message, 'err'); }
     setTimeout(() => fr.remove(), 60000);
+  }
+  // A4 排版：四邊留 10 公釐給印表機，標籤緊貼排列，虛線就是裁切線
+  const A4_W = 210, A4_H = 297, A4_M = 10;
+  function a4Grid() {
+    const c = labelCfg(), cols = Math.max(1, Math.floor((A4_W - A4_M * 2) / c.w)), rows = Math.max(1, Math.floor((A4_H - A4_M * 2) / c.h));
+    const per = cols * rows, want = c.a4fill ? per : Math.max(1, parseInt(c.copies, 10) || 1);
+    return { cols, rows, per, want: Math.min(want, per * 20), w: c.w, h: c.h };
+  }
+  function a4Html(src) {
+    const g = a4Grid(), pages = [];
+    for (let i = 0; i < g.want; i += g.per) pages.push(Math.min(g.per, g.want - i));
+    return `<!doctype html><html><head><meta charset="utf-8"><title>標籤 A4</title><style>
+      @page { size: A4; margin: 0; }
+      html, body { margin: 0; padding: 0; background: #fff; }
+      .sheet { width: ${A4_W}mm; height: ${A4_H - 1}mm; padding: ${A4_M}mm; box-sizing: border-box; overflow: hidden; display: grid; grid-template-columns: repeat(${g.cols}, ${g.w}mm); grid-auto-rows: ${g.h}mm; justify-content: center; align-content: start; }
+      .sheet + .sheet { break-before: page; }
+      img { display: block; width: ${g.w}mm; height: ${g.h}mm; box-sizing: border-box; border: .2mm dashed #999; }
+    </style></head><body>${pages.map(n => `<div class="sheet">${`<img src="${src}" alt="">`.repeat(n)}</div>`).join('')}</body></html>`;
+  }
+  async function labelA4Pdf() {
+    await loadJs(PDF_LIBS[1]);
+    const g = a4Grid(), src = drawLabel(document.createElement('canvas'), LABEL_DOTS * 2).toDataURL('image/png');
+    const pdf = new window.jspdf.jsPDF({ unit: 'mm', format: 'a4' });
+    const x0 = (A4_W - g.cols * g.w) / 2;
+    pdf.setDrawColor(153); pdf.setLineDashPattern([1, 1], 0); pdf.setLineWidth(0.2);
+    for (let i = 0; i < g.want; i++) {
+      const k = i % g.per;
+      if (i && !k) pdf.addPage();
+      const x = x0 + (k % g.cols) * g.w, y = A4_M + Math.floor(k / g.cols) * g.h;
+      pdf.addImage(src, 'PNG', x, y, g.w, g.h, 'label', 'FAST');
+      pdf.rect(x, y, g.w, g.h);
+    }
+    return new File([pdf.output('blob')], `標籤_${labelForm.name.trim() || '未命名'}_A4.pdf`.replace(/[\/:*?"<>|]/g, '_'), { type: 'application/pdf' });
+  }
+  async function labelA4() {
+    if (!labelForm.name.trim()) { toast('請先填品名', 'err'); const n = $('[data-label="name"]'); if (n) n.focus(); return; }
+    if (IS_MOBILE) return sharePdf(labelA4Pdf);
+    await printFrame(a4Html(drawLabel(document.createElement('canvas'), LABEL_DOTS * 2).toDataURL('image/png')));
   }
   async function labelBrowser() {
     const c = labelCfg(), f = { ...labelForm, made: labelMade(), exp: labelExp() };
@@ -3251,6 +3301,7 @@
         break;
       }
       case 'label-sys': await labelSys(); break;
+      case 'label-a4': await labelA4(); break;
       case 'label-browser': await labelBrowser(); break;
       case 'price-add': priceFilter = ''; db.prices.push(normPrice({})); db.pricesUpdatedAt = Date.now(); persist(); render(); { const ins = $$('[data-price$=".name"]'); ins.length && ins[ins.length - 1].focus(); } break;
       case 'price-rm': db.prices.splice(+el.dataset.k, 1); db.pricesUpdatedAt = Date.now(); persist(); render(); break;
@@ -3510,6 +3561,6 @@
 
   // 供桌面版自我測試使用
   window.__kitchenOcr = t => ocrCheck(parseOcrText(t), '');
-  window.__kitchen = { get db() { return db; }, persist, U, version: APP_VERSION, labelSend, mergeLabels };
+  window.__kitchen = { get db() { return db; }, persist, U, version: APP_VERSION, labelSend, mergeLabels, labelA4Pdf };
   init();
 })();
