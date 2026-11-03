@@ -345,6 +345,8 @@ body:has(.dragging) { user-select: none; -webkit-user-select: none; }
   .modal-back:has(.cheat-modal) { padding: 8px; }
   .modal.cheat-modal { padding: 14px; height: calc(100dvh - 16px); }
   .cheat-modal .hint { font-size: .8rem; margin: 4px 0; }
+  .ci-row { flex-wrap: wrap; }
+  .ci-row .pname { flex: 1 1 60%; }
 }
 .cm-head { display: flex; align-items: center; gap: 8px; }
 .cm-head h3 { margin: 0; }

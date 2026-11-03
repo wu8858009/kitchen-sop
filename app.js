@@ -2,7 +2,7 @@
 (() => {
   'use strict';
   const U = window.KUnits;
-  const APP_VERSION = '2.6.2';
+  const APP_VERSION = '2.6.3';
   const IS_DESKTOP = /[?&]desktop=1\b/.test(location.search);
 
   const $ = (s, el = document) => el.querySelector(s);
@@ -1002,8 +1002,28 @@
       const r = getRecipe(it.recipeId);
       return `<div class="cheat-item"><div class="ci-row">${DRAG}<span class="pname">${esc(r.name)}</span>
         <label class="inline">×<input type="text" autocomplete="off" placeholder="2 或 /3" data-cheat-mult="${k}" value="${multText(it.mult)}"></label>
-        <span class="muted small" id="cy${k}">${fmt(r.yieldQty * it.mult)} ${esc(r.yieldUnit)}</span>${tools}</div></div>`;
+        <span class="muted small" id="cy${k}">${fmt(r.yieldQty * it.mult)} ${esc(r.yieldUnit)}</span>${tools}</div>
+        <textarea rows="${Math.max(2, r.steps.length)}" placeholder="製作步驟，一行一步（會存回這道食譜）" data-cheat-steps="${k}">${esc(r.steps.map(s => s.text).join('\n'))}</textarea></div>`;
     }).join('') || '<p class="muted">尚未加入卡片。</p>';
+  }
+  /** 小抄裡改步驟＝改食譜本身；沒改到的行保留原本的計時、重點、越南文 */
+  function cheatSetSteps(r, text) {
+    const old = r.steps, used = new Set();
+    // 頭尾相同的字數過半才算同一步改字；整句換掉就是新步驟，不沿用舊的計時和重點
+    const alike = (x, y) => {
+      let p = 0, q = 0;
+      while (p < x.length && x[p] === y[p]) p++;
+      while (q < x.length - p && q < y.length - p && x[x.length - 1 - q] === y[y.length - 1 - q]) q++;
+      return (p + q) * 2 >= Math.max(x.length, y.length);
+    };
+    const lines = text.split('\n').map(x => x.trim()).filter(Boolean);
+    const same = lines.map(l => { const s = old.find(x => x.text === l && !used.has(x)); if (s) used.add(s); return s; });
+    r.steps = lines.map((l, k) => {
+      if (same[k]) return same[k];
+      if (old[k] && !used.has(old[k]) && alike(old[k].text, l)) { used.add(old[k]); return { ...old[k], text: l, textVi: '' }; }
+      return { id: uid(), text: l, minutes: null, key: old.some(x => x.key), textVi: '' }; // 這道菜有標重點時，新打的也算重點，才會出現在卡片上
+    });
+    r.updatedAt = Date.now();
   }
 
   function openCheatEditor() {
@@ -1011,7 +1031,7 @@
     const m = $('#modal');
     m.innerHTML = `<div class="modal-back" data-cheat-back><div class="modal cheat-modal" id="cheatEditor" role="dialog" aria-modal="true">
         <div class="cm-head"><h3>編輯小抄卡片</h3><div class="spacer"></div><button class="icon" data-act="cheat-close" title="關閉">✕</button></div>
-        <p class="hint">把食譜依倍數濃縮成精簡卡片（份量、食材用量、重點步驟），列印後可剪下貼在工作台；也能加自訂文字卡。按住 ⠿ 拖曳可以調整順序。</p>
+        <p class="hint">把食譜依倍數濃縮成精簡卡片（份量、食材用量、步驟），列印後可剪下貼在工作台；也能加自訂文字卡。每道菜下方的框可以直接打步驟，一行一步，會存回食譜。按住 ⠿ 拖曳可以調整順序。</p>
         <div class="cm-scroll"><div class="cheat-items" id="cheatItems"></div></div>
         <div class="plan-add cm-add">
           ${avail.length ? `<select id="cheatAdd">${avail.map(r => `<option value="${esc(r.id)}">${esc(r.name)}</option>`).join('')}</select>
@@ -1031,6 +1051,7 @@
     if (!$('#cheatEditor')) return;
     m.classList.remove('open'); m.innerHTML = ''; m.onkeydown = null;
     if (route.name === 'cheat') render();
+    setTimeout(autoTranslate, 300);
   }
   /** 卡片有增減或換順序：更新彈跳視窗裡的清單與頁面上的預覽 */
   function refreshCheat(focusLastNote) {
@@ -1138,7 +1159,9 @@
       }
       body += `<div class="cc-ings">${rows}</div>`;
     }
-    const steps = c.steps === 'none' ? [] : r.steps.map((s, k) => ({ ...s, n: k + 1 })).filter(s => c.steps === 'all' || s.key);
+    // 只列重點：這道菜沒有標重點的話就全部列出，不然打了步驟也看不到
+    const keyOnly = c.steps === 'key' && r.steps.some(s => s.key);
+    const steps = c.steps === 'none' ? [] : r.steps.map((s, k) => ({ ...s, n: k + 1 })).filter(s => !keyOnly || s.key);
     if (steps.length) body += `<ol class="cc-steps">${steps.map(s => `<li value="${s.n}" class="${s.key ? 'key' : ''}">${bvML((s.key && c.steps === 'all' ? '★ ' : '') + s.text, s.textVi)}${s.minutes ? ` <span class="cc-min">⏱${fmt(s.minutes)} 分${viOn() ? ' (phút)' : ''}</span>` : ''}</li>`).join('')}</ol>`;
     if (c.notes && r.notes.trim()) body += `<div class="cc-notes">${bvML(r.notes.trim(), r.notesVi)}</div>`;
     if (c.cost) { const k = recipeCost(r, mult, priceMap()); body += `<div class="cc-cost">${bt(`成本 ${money(k.total)}　每${r.yieldUnit} ${money(k.perUnit)}${k.missing ? '（部分未計）' : ''}`)}</div>`; }
@@ -2993,6 +3016,11 @@
     if (t.dataset.cheatMult != null) {
       const k = +t.dataset.cheatMult, m = parseMult(t.value), it = cheatCfg().items[k];
       if (it && m) { it.mult = m; persist(); const r = getRecipe(it.recipeId); $('#cy' + k).textContent = `${fmt(r.yieldQty * m)} ${r.yieldUnit}`; updateCheat(); }
+      return;
+    }
+    if (t.dataset.cheatSteps != null) {
+      const it = cheatCfg().items[+t.dataset.cheatSteps], r = it && getRecipe(it.recipeId);
+      if (r) { cheatSetSteps(r, t.value); persist(); updateCheat(); }
       return;
     }
     if (t.dataset.cheatNote != null) {
