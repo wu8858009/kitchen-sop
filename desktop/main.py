@@ -1,4 +1,5 @@
 """廚房 SOP 食譜及倍數計算系統 — Windows 桌面版（pywebview + WebView2，資料存 %APPDATA%\\KitchenSOP）"""
+import base64
 import ctypes
 import datetime as dt
 import functools
@@ -7,6 +8,7 @@ import os
 import sys
 import threading
 import time
+import webbrowser
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
@@ -65,6 +67,29 @@ class Api:
             path = path.with_suffix(".json")
         path.write_text(text, encoding="utf-8")
         return str(path)
+
+    def export_image(self, data_url, filename):
+        """把標籤存成 PNG"""
+        docs = Path.home() / "Documents"
+        res = _window.create_file_dialog(
+            webview.FileDialog.SAVE,
+            directory=str(docs if docs.exists() else Path.home()),
+            save_filename=filename,
+            file_types=("PNG 圖片 (*.png)",),
+        )
+        if not res:
+            return ""
+        path = Path(res[0] if isinstance(res, (list, tuple)) else res)
+        if path.suffix.lower() != ".png":
+            path = path.with_suffix(".png")
+        path.write_bytes(base64.b64decode(data_url.split(",", 1)[1]))
+        return str(path)
+
+    def open_url(self, url):
+        """WebView2 不能連藍牙／USB 印表機，標籤列印交給瀏覽器；只開自己的網站"""
+        if not url.startswith("https://wu8858009.github.io/kitchen-sop/"):
+            return False
+        return webbrowser.open(url)
 
     def set_ime(self, mode):
         """輸入框取得焦點時切換輸入法：'zh' 中文、'en' 英數"""
@@ -208,6 +233,10 @@ def _selftest(out_path):
                 hwnd, _ = _focus_hwnd()
                 ime[name] = _ime_send(hwnd, _IMC_GETCONVERSIONMODE) if hwnd else None
             result["ime"] = ime
+        _window.evaluate_js("location.hash='#/labels'")
+        time.sleep(0.5)
+        result["label_btns"] = _window.evaluate_js("[...document.querySelectorAll('.label-page .btn')].map(b => b.innerText)")
+        result["label_api"] = _window.evaluate_js("[typeof window.pywebview.api.open_url, typeof window.pywebview.api.export_image]")
         result["ok"] = bool(result["names"]) and result["file_exists"]
     except Exception as e:  # noqa: BLE001
         result["error"] = repr(e)
