@@ -2,7 +2,7 @@
 (() => {
   'use strict';
   const U = window.KUnits;
-  const APP_VERSION = '2.7.7';
+  const APP_VERSION = '2.8.0';
   const IS_DESKTOP = /[?&]desktop=1\b/.test(location.search);
 
   const $ = (s, el = document) => el.querySelector(s);
@@ -129,8 +129,8 @@
       yieldQty: num(r.yieldQty) || 1,
       yieldUnit: String(r.yieldUnit || '份'),
       photo: typeof r.photo === 'string' ? r.photo : '',
-      notes: String(r.notes || ''),
-      nameVi: String(r.nameVi || ''), categoryVi: String(r.categoryVi || ''), notesVi: String(r.notesVi || ''),
+      notes: String(r.notes || ''), shelf: String(r.shelf || ''),
+      nameVi: String(r.nameVi || ''), categoryVi: String(r.categoryVi || ''), notesVi: String(r.notesVi || ''), shelfVi: String(r.shelfVi || ''),
       ingredients: (Array.isArray(r.ingredients) ? r.ingredients : []).map(i => ({
         id: String(i.id || uid()), group: String(i.group || ''), name: String(i.name || ''),
         qty: num(i.qty), unit: String(i.unit || ''), note: String(i.note || ''),
@@ -209,7 +209,7 @@
       recipes: [
         {
           name: '古早味滷肉（肉燥）', category: '主菜', yieldQty: 20, yieldUnit: '份',
-          notes: '保存：冷藏 3 天、冷凍 1 個月。分裝時每份約 120 g。',
+          notes: '分裝時每份約 120 g。', shelf: '冷藏 3 天、冷凍 1 個月',
           ingredients: [
             I('豬五花絞肉', 2, 'kg', '粗絞'), I('蒜末', 50, 'g'), I('紅蔥頭酥', 150, 'g'),
             I('醬油', 300, 'ml', '', '滷汁'), I('米酒', 100, 'ml', '', '滷汁'), I('冰糖', 80, 'g', '', '滷汁'),
@@ -265,7 +265,8 @@
   // 範例食譜的越南文
   const SAMPLE_VI = {
     '古早味滷肉（肉燥）': 'Thịt kho kiểu xưa (thịt băm kho)', '三杯雞': 'Gà ba chén', '番茄蛋花湯': 'Canh cà chua trứng', '主菜': 'Món chính', '湯品': 'Món canh',
-    '保存：冷藏 3 天、冷凍 1 個月。分裝時每份約 120 g。': 'Bảo quản: ngăn mát 3 ngày, ngăn đông 1 tháng. Khi chia phần, mỗi phần khoảng 120 g.',
+    '分裝時每份約 120 g。': 'Khi chia phần, mỗi phần khoảng 120 g.',
+    '冷藏 3 天、冷凍 1 個月': 'Ngăn mát 3 ngày, ngăn đông 1 tháng',
     '豬五花絞肉': 'Thịt ba chỉ xay', '蒜末': 'Tỏi băm', '紅蔥頭酥': 'Hành phi', '醬油': 'Nước tương', '米酒': 'Rượu gạo', '冰糖': 'Đường phèn',
     '五香粉': 'Ngũ vị hương', '白胡椒粉': 'Tiêu trắng xay', '水': 'Nước', '去骨雞腿肉': 'Đùi gà rút xương', '黑麻油': 'Dầu mè đen', '老薑片': 'Gừng già thái lát',
     '蒜頭': 'Tỏi', '九層塔': 'Húng quế', '辣椒': 'Ớt', '牛番茄': 'Cà chua', '雞蛋': 'Trứng gà', '高湯': 'Nước dùng', '鹽': 'Muối', '蔥花': 'Hành lá thái nhỏ',
@@ -288,7 +289,7 @@
   };
   function fillSampleVi(r) {
     const f = (o, k, kv) => { if (o[k] && !o[kv] && SAMPLE_VI[o[k]]) o[kv] = SAMPLE_VI[o[k]]; };
-    f(r, 'name', 'nameVi'); f(r, 'category', 'categoryVi'); f(r, 'notes', 'notesVi');
+    f(r, 'name', 'nameVi'); f(r, 'category', 'categoryVi'); f(r, 'notes', 'notesVi'); f(r, 'shelf', 'shelfVi');
     r.ingredients.forEach(i => { f(i, 'name', 'nameVi'); f(i, 'note', 'noteVi'); f(i, 'group', 'groupVi'); });
     r.steps.forEach(x => f(x, 'text', 'textVi'));
     return r;
@@ -487,6 +488,7 @@
           ${r.category ? `<div class="cat">${esc(r.category)}</div>` : ''}
           <h1>${esc(r.name)}</h1>
           <div class="muted">基準份量 ${fmt(r.yieldQty)} ${esc(r.yieldUnit)} · ${ingCount(r)} 項食材 · ${r.steps.length} 個步驟${mins ? ` · 計時合計約 ${fmt(mins)} 分鐘` : ''}</div>
+          ${r.shelf.trim() ? `<div class="shelf-line">🗓 保存期限：<b>${esc(r.shelf.trim())}</b></div>` : ''}
         </div>
       </div>
 
@@ -770,6 +772,7 @@
         <label class="fld">分類<input data-bind="category" value="${esc(r.category)}" list="dl-cat" placeholder="主菜、湯品、醬料…">${viIn('categoryVi', r.categoryVi)}</label>
         <label class="fld">基準份量<input data-bind="yieldQty" value="${esc(r.yieldQty)}" inputmode="decimal"></label>
         <label class="fld">份量單位<input data-bind="yieldUnit" value="${esc(r.yieldUnit)}" list="dl-yu" placeholder="份、人份、碗、kg…"></label>
+        <label class="fld wide">保存期限<input data-bind="shelf" value="${esc(r.shelf)}" placeholder="例如：冷藏 3 天、冷凍 1 個月" autocomplete="off">${viIn('shelfVi', r.shelfVi)}</label>
         <div class="fld wide photo-fld">
           <span>照片</span>
           <div class="photo-row">
@@ -810,7 +813,7 @@
 
       <section class="card">
         <h2>備註</h2>
-        <textarea data-bind="notes" rows="3" placeholder="保存方式、出餐注意事項…">${esc(r.notes)}</textarea>
+        <textarea data-bind="notes" rows="3" placeholder="出餐注意事項…">${esc(r.notes)}</textarea>
         ${V ? `<textarea class="vi-in" data-bind="notesVi" rows="3" placeholder="備註（越南文）" lang="vi">${esc(r.notesVi || '')}</textarea>
         <p class="hint">虛線框是越南文（只顯示在小抄卡片上）。留空會在儲存時用 Google 翻譯自動填入（需連線 Google 雲端），也可以自己修改。</p>` : ''}
       </section>
@@ -986,7 +989,7 @@
   const LABEL_DOTS = 8;                       // 203 dpi ≒ 每公釐 8 點
   const LABEL_MAX_W = 72;                     // B3S 列印頭 576 點 = 72 公釐
   const LABEL_SITE = 'https://wu8858009.github.io/kitchen-sop/';
-  const NIIM_LIB = 'vendor/niimbluelib.min.js?v=39';
+  const NIIM_LIB = 'vendor/niimbluelib.min.js?v=40';
   const labelForm = { name: '', qty: '', note: '', made: null, exp: '' };   // made：null = 今天，'' = 不印
   let niim = null;                            // 已連線的印表機
   let labelQ = '';                            // 已儲存標籤的搜尋字
@@ -1169,10 +1172,33 @@
       </div>
     </div>`;
   }
+  // 保存期限換算天數，有寫冷藏就用冷藏；只有小時或沒寫數字就不算
+  function shelfDays(text) {
+    const parts = String(text).split(/[、，,；;／/\n]/);
+    for (const p of [...parts.filter(x => x.includes('冷藏')), ...parts]) {
+      const m = p.match(/(\d+(?:\.\d+)?)\s*(天|日|週|周|星期|個?月|年)/);
+      if (m) return Math.round(+m[1] * ({ 週: 7, 周: 7, 星期: 7, 月: 30, 個月: 30, 年: 365 }[m[2]] || 1));
+    }
+    return null;
+  }
+  // 品名和食譜相同：帶入保存天數，備註空白（或還是上次帶入的）就填保存期限
+  function labelFromRecipe(name) {
+    const r = db.recipes.find(x => normName(x.name) === normName(name)), shelf = r ? r.shelf.trim() : '';
+    if (!shelf) return;
+    const days = shelfDays(shelf);
+    if (days != null) {
+      labelCfg().days = String(days); labelForm.exp = '';
+      const d = $('[data-label="days"]'); if (d) d.value = days;
+    }
+    if (!labelForm.note.trim() || labelForm.note === labelForm.shelfNote) {
+      labelForm.note = labelForm.shelfNote = shelf;
+      const n = $('[data-label="note"]'); if (n) n.value = shelf;
+    }
+  }
   function onLabelInput(t) {
     const c = labelCfg(), k = t.dataset.label, v = t.value;
     if (k === 'a4fill') c.a4fill = t.checked;
-    else if (k === 'name' || k === 'qty' || k === 'note') labelForm[k] = v;
+    else if (k === 'name' || k === 'qty' || k === 'note') { labelForm[k] = v; if (k === 'name') labelFromRecipe(v); }
     else if (k === 'made') labelForm.made = v;
     else if (k === 'exp') { labelForm.exp = v; c.days = ''; const d = $('[data-label="days"]'); if (d) d.value = ''; }
     else if (k === 'size') {
@@ -1322,7 +1348,7 @@
 
   // ---------------------------------------------------------------- 小抄
   // 存在 settings.cheat，跟著設定一起同步到雲端
-  const CHEAT_DEF = { items: [], ing: true, steps: 'key', notes: true, cost: false, vi: true, layout: 'two', size: 'm', group: 'page', only: '' };
+  const CHEAT_DEF = { items: [], ing: true, steps: 'key', notes: true, shelf: true, cost: false, vi: true, layout: 'two', size: 'm', group: 'page', only: '' };
   function cheatCfg() {
     const c = Object.assign({}, CHEAT_DEF, db.settings.cheat || {});
     const ids = new Set(db.recipes.map(r => r.id));
@@ -1444,7 +1470,7 @@
       <section class="card no-print">
         <h2>內容與版面</h2>
         <div class="cheat-opts">
-          ${box('ing', '食材用量')}${box('notes', '食譜備註')}${box('cost', '成本')}${box('vi', '越南文（Tiếng Việt）')}
+          ${box('ing', '食材用量')}${box('shelf', '保存期限')}${box('notes', '食譜備註')}${box('cost', '成本')}${box('vi', '越南文（Tiếng Việt）')}
           <label class="fld inline-fld">步驟<select data-cheat-opt="steps">${opt('steps', 'key', '只列重點步驟')}${opt('steps', 'all', '全部步驟')}${opt('steps', 'none', '不列步驟')}</select></label>
           <label class="fld inline-fld">版面<select data-cheat-opt="layout">${opt('layout', 'two', '兩欄小卡')}${opt('layout', 'one', '單欄')}${opt('layout', 'page', '一頁一張')}</select></label>
           <label class="fld inline-fld">分類<select data-cheat-opt="group">${opt('group', 'page', '依分類，每類換頁')}${opt('group', 'head', '依分類，不換頁')}${opt('group', 'none', '不分類')}</select></label>
@@ -1536,6 +1562,7 @@
     const keyOnly = c.steps === 'key' && r.steps.some(s => s.key);
     const steps = c.steps === 'none' ? [] : r.steps.map((s, k) => ({ ...s, n: k + 1 })).filter(s => !keyOnly || s.key);
     if (steps.length) body += `<ol class="cc-steps">${steps.map(s => `<li value="${s.n}" class="${s.key ? 'key' : ''}">${bvML((s.key && c.steps === 'all' ? '★ ' : '') + s.text, s.textVi)}${s.minutes ? ` <span class="cc-min">⏱${fmt(s.minutes)} 分${viOn() ? ' (phút)' : ''}</span>` : ''}</li>`).join('')}</ol>`;
+    if (c.shelf && r.shelf.trim()) body += `<div class="cc-shelf">${bv(`保存期限：${r.shelf.trim()}`, r.shelfVi.trim() ? `Hạn bảo quản: ${r.shelfVi.trim()}` : '')}</div>`;
     if (c.notes && r.notes.trim()) body += `<div class="cc-notes">${bvML(r.notes.trim(), r.notesVi)}</div>`;
     if (c.cost) { const k = recipeCost(r, mult, priceMap()); body += `<div class="cc-cost">${bt(`成本 ${money(k.total)}　每${r.yieldUnit} ${money(k.perUnit)}${k.missing ? '（部分未計）' : ''}`)}</div>`; }
     return `<article class="cheat-card"><header><h3>${bv(r.name, r.nameVi)}</h3>
@@ -2888,7 +2915,7 @@
   function viTasks(r) {
     const t = [];
     const add = (o, k, kv) => { const src = String(o[k] || '').trim(); if (src && !String(o[kv] || '').trim()) t.push([o, kv, src]); };
-    add(r, 'name', 'nameVi'); add(r, 'category', 'categoryVi'); add(r, 'notes', 'notesVi');
+    add(r, 'name', 'nameVi'); add(r, 'category', 'categoryVi'); add(r, 'notes', 'notesVi'); add(r, 'shelf', 'shelfVi');
     r.ingredients.forEach(i => { add(i, 'name', 'nameVi'); add(i, 'note', 'noteVi'); add(i, 'group', 'groupVi'); });
     r.steps.forEach(x => add(x, 'text', 'textVi'));
     return t;
@@ -3193,7 +3220,7 @@
     name: '印在標籤最上方，可從食譜、SOP、盤點品項挑選', qty: '例如 2 公斤；留空就不印', made: '預設今天；清空就不印', days: '填天數會自動算出到期日', exp: '也可以直接選日期，保存天數會清空', who: '留空就不印', note: '例如保存方式；留空就不印', copies: '要印幾張',
     size: '選和標籤紙相同的尺寸', w: '標籤紙寬度，B3S 最大可印 72 公釐', h: '標籤紙高度', paper: '選和標籤紙相同的種類，一般貼紙選間隙紙', density: '數字越大印得越黑', task: '連得上卻印不出來時才需要換', a4fill: '勾選就排滿一頁；不勾就依「張數」排版',
   };
-  const CHEAT_OPT_TIPS = { group: '依食譜分類分段，可以讓每個分類從新的一頁開始', only: '只顯示和列印這個分類；最前面的文字卡也會一起印', ing: '卡片上顯示食材用量', notes: '卡片上顯示食譜備註', cost: '卡片上顯示成本', vi: '卡片上加入越南文', steps: '選擇卡片要列出哪些步驟；沒標重點的菜會全部列出', layout: '卡片的排列方式', size: '卡片的字體大小' };
+  const CHEAT_OPT_TIPS = { shelf: '卡片上顯示食譜的保存期限', group: '依食譜分類分段，可以讓每個分類從新的一頁開始', only: '只顯示和列印這個分類；最前面的文字卡也會一起印', ing: '卡片上顯示食材用量', notes: '卡片上顯示食譜備註', cost: '卡片上顯示成本', vi: '卡片上加入越南文', steps: '選擇卡片要列出哪些步驟；沒標重點的菜會全部列出', layout: '卡片的排列方式', size: '卡片的字體大小' };
   const ID_TIPS = { mult: '輸入倍數，例如 2、1.5 或 /3', target: '輸入想要的份量，自動算出倍數', planAdd: '選擇要加入備料單的菜', cheatAdd: '選擇要做成卡片的食譜', labelQ: '用品名搜尋已儲存的標籤', invEdStop: '顯示或收起已停用的品項' };
   const TEXT_TIPS = { '選擇照片': '選一張照片放在這裡', '📷 照片辨識': '拍下或選擇紙本 SOP，自動辨識填入表格', '📷 從照片建立': '拍下或選擇紙本 SOP，自動建立一份新的', '⬆ 上傳鈴聲': '用自己的音檔當計時器提示音', '⬆ 匯入備份': '從備份檔還原資料', '雲端設定說明': '查看 Google 雲端同步的設定步驟' };
   const HREF_TIPS = [[/^#\/new/, '新增一道食譜'], [/^#\/edit\//, '編輯這道食譜的內容'], [/^#\/r\//, '開啟這道食譜'], [/^#\/sop\//, '開啟這份 SOP'], [/^#\/sops$/, '回 SOP 列表'], [/^#\/prices$/, '開啟食材單價表'], [/^#\/?$/, '回食譜列表']];
@@ -3532,7 +3559,7 @@
       const b = t.dataset.bind;
       setPath(draft.r, b, t.type === 'checkbox' ? t.checked : t.value);
       if (/Vi$/.test(b)) draft.viTouched.add(b);
-      else if (/(^|\.)(name|category|notes|group|note|text)$/.test(b) && !draft.viTouched.has(b + 'Vi')) {
+      else if (/(^|\.)(name|category|notes|shelf|group|note|text)$/.test(b) && !draft.viTouched.has(b + 'Vi')) {
         // 中文改了：清掉舊的越南文，儲存時重新翻譯
         setPath(draft.r, b + 'Vi', '');
         const v = $(`[data-bind="${b}Vi"]`);
@@ -3692,6 +3719,6 @@
 
   // 供桌面版自我測試使用
   window.__kitchenOcr = t => ocrCheck(parseOcrText(t), '');
-  window.__kitchen = { get db() { return db; }, persist, U, version: APP_VERSION, labelSend, mergeLabels, labelA4Pdf, buildCheatPdf };
+  window.__kitchen = { get db() { return db; }, persist, U, version: APP_VERSION, labelSend, mergeLabels, labelA4Pdf, buildCheatPdf, shelfDays };
   init();
 })();

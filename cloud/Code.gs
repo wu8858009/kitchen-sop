@@ -22,7 +22,7 @@ const APP = "kitchen-sop";
 const CHUNK = 45000; // 每格上限 5 萬字，照片分段存放
 
 const SHEETS = {
-  recipes: { name: "食譜", cols: ["id", "名稱", "分類", "基準份量", "份量單位", "備註", "照片", "建立時間", "更新時間", "名稱(越)", "分類(越)", "備註(越)"], text: [1, 2, 3, 5, 6, 7, 10, 11, 12] },
+  recipes: { name: "食譜", cols: ["id", "名稱", "分類", "基準份量", "份量單位", "備註", "照片", "建立時間", "更新時間", "名稱(越)", "分類(越)", "備註(越)", "保存期限", "保存期限(越)"], text: [1, 2, 3, 5, 6, 7, 10, 11, 12, 13, 14] },
   ings: { name: "食材", cols: ["食譜id", "食譜名稱", "順序", "分組", "食材", "數量", "單位", "備註", "id", "分組(越)", "食材(越)", "備註(越)"], text: [1, 2, 4, 5, 7, 8, 9, 10, 11, 12] },
   steps: { name: "步驟", cols: ["食譜id", "食譜名稱", "順序", "步驟說明", "計時(分)", "重點", "id", "步驟說明(越)"], text: [1, 2, 4, 6, 7, 8] },
   prices: { name: "單價", cols: ["id", "食材", "價格", "每", "單位"], text: [1, 2, 5] },
@@ -168,7 +168,7 @@ function load_(ss) {
   const recipes = rows_(ss, "recipes").filter((r) => r[0] !== "").map((r) => ({
     id: str_(r[0]), name: str_(r[1]), category: str_(r[2]), yieldQty: num_(r[3]), yieldUnit: str_(r[4]),
     notes: str_(r[5]), photoHash: str_(r[6]), createdAt: num_(r[7]), updatedAt: num_(r[8]),
-    nameVi: str_(r[9]), categoryVi: str_(r[10]), notesVi: str_(r[11]),
+    nameVi: str_(r[9]), categoryVi: str_(r[10]), notesVi: str_(r[11]), shelf: str_(r[12]), shelfVi: str_(r[13]),
     ingredients: [], steps: [],
   }));
   const byId = {};
@@ -254,7 +254,7 @@ function save_(ss, req) {
 
     const recipeRows = [], ingRows = [], stepRows = [];
     recipes.forEach((r) => {
-      recipeRows.push([str_(r.id), str_(r.name), str_(r.category), num_(r.yieldQty) || 1, str_(r.yieldUnit), str_(r.notes), str_(r.photoHash), date_(r.createdAt), date_(r.updatedAt), str_(r.nameVi), str_(r.categoryVi), str_(r.notesVi)]);
+      recipeRows.push([str_(r.id), str_(r.name), str_(r.category), num_(r.yieldQty) || 1, str_(r.yieldUnit), str_(r.notes), str_(r.photoHash), date_(r.createdAt), date_(r.updatedAt), str_(r.nameVi), str_(r.categoryVi), str_(r.notesVi), str_(r.shelf), str_(r.shelfVi)]);
       (r.ingredients || []).forEach((i, k) => ingRows.push([str_(r.id), str_(r.name), k + 1, str_(i.group), str_(i.name), i.qty == null ? "" : Number(i.qty), str_(i.unit), str_(i.note), str_(i.id), str_(i.groupVi), str_(i.nameVi), str_(i.noteVi)]));
       (r.steps || []).forEach((s, k) => stepRows.push([str_(r.id), str_(r.name), k + 1, str_(s.text), s.minutes == null ? "" : Number(s.minutes), s.key ? "是" : "", str_(s.id), str_(s.textVi)]));
     });
