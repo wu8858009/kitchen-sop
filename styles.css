@@ -633,3 +633,5 @@ select { max-width: 100%; }
   .cat-title { font-size: 14pt; color: #000; border-left-color: #000; margin-bottom: 6pt; break-after: avoid; }
   .cat-page .cheat-cat + .cheat-cat { break-before: page; margin-top: 0; }
 }
+.shelf-line { margin-top: 4px; }
+.cc-shelf { margin-top: 6px; font-weight: 700; font-size: .92em; }
