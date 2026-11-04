@@ -2,7 +2,7 @@
 (() => {
   'use strict';
   const U = window.KUnits;
-  const APP_VERSION = '2.7.4';
+  const APP_VERSION = '2.7.5';
   const IS_DESKTOP = /[?&]desktop=1\b/.test(location.search);
 
   const $ = (s, el = document) => el.querySelector(s);
@@ -13,7 +13,7 @@
   const clone = o => JSON.parse(JSON.stringify(o));
   const normName = s => String(s || '').trim().toLowerCase().replace(/\s+/g, '');
   // 越南文只用在小抄卡片：中文下方加一行越南文（食譜內容用翻譯好的欄位，固定字用字典）
-  const viOn = () => cheatCfg().vi !== false;
+  const viOn = () => (db.settings.cheat || {}).vi !== false;
   const trVi = zh => (window.KVi ? window.KVi.tr(zh) : '');
   const bv = (zh, vi) => (viOn() && vi && String(vi).trim() ? `<span class="bi">${esc(zh)}<span class="vi" lang="vi">${esc(vi)}</span></span>` : esc(zh));
   const bvML = (zh, vi) => (viOn() && vi && String(vi).trim() ? `<span class="bi">${escML(zh)}<span class="vi" lang="vi">${escML(vi)}</span></span>` : escML(zh));
@@ -985,7 +985,7 @@
   const LABEL_DOTS = 8;                       // 203 dpi ≒ 每公釐 8 點
   const LABEL_MAX_W = 72;                     // B3S 列印頭 576 點 = 72 公釐
   const LABEL_SITE = 'https://wu8858009.github.io/kitchen-sop/';
-  const NIIM_LIB = 'vendor/niimbluelib.min.js?v=36';
+  const NIIM_LIB = 'vendor/niimbluelib.min.js?v=37';
   const labelForm = { name: '', qty: '', note: '', made: null, exp: '' };   // made：null = 今天，'' = 不印
   let niim = null;                            // 已連線的印表機
   let labelQ = '';                            // 已儲存標籤的搜尋字
@@ -1324,24 +1324,33 @@
   const CHEAT_DEF = { items: [], ing: true, steps: 'key', notes: true, cost: false, vi: true, layout: 'two', size: 'm' };
   function cheatCfg() {
     const c = Object.assign({}, CHEAT_DEF, db.settings.cheat || {});
-    c.items = (Array.isArray(c.items) ? c.items : []).filter(x => x && (x.type === 'note' || getRecipe(x.recipeId)));
+    const ids = new Set(db.recipes.map(r => r.id));
+    c.items = (Array.isArray(c.items) ? c.items : []).filter(x => x && (x.type === 'note' || ids.has(x.recipeId)));
+    // 食譜自動成為卡片：還沒有卡片的接在最後，順序之後可以拖曳；不想印的用 off 隱藏，才不會又被加回來
+    const has = new Set(c.items.map(x => x.recipeId));
+    db.recipes.filter(r => !has.has(r.id))
+      .sort((a, b) => a.category.localeCompare(b.category, 'zh-Hant') || a.name.localeCompare(b.name, 'zh-Hant'))
+      .forEach(r => c.items.push({ type: 'recipe', recipeId: r.id, mult: 1 }));
     return (db.settings.cheat = c);
   }
+  const cheatShown = c => c.items.filter(x => !x.off);
   function cheatAddRecipe(id, mult) {
     const c = cheatCfg(), it = c.items.find(x => x.type !== 'note' && x.recipeId === id);
-    if (it) it.mult = mult; else c.items.push({ type: 'recipe', recipeId: id, mult });
+    if (it) { it.mult = mult; delete it.off; } else c.items.push({ type: 'recipe', recipeId: id, mult });
   }
 
   // 卡片清單（在「編輯卡片」彈跳視窗裡）
   function cheatItemsHtml() {
     const c = cheatCfg();
     return c.items.map((it, k) => {
-      const tools = `<button class="icon" data-act="cheat-mv" data-k="${k}" data-d="-1" title="上移">↑</button><button class="icon" data-act="cheat-mv" data-k="${k}" data-d="1" title="下移">↓</button>
-        <button class="icon danger" data-act="cheat-rm" data-k="${k}" title="移除">✕</button>`;
+      const mv = `<button class="icon" data-act="cheat-mv" data-k="${k}" data-d="-1" title="上移">↑</button><button class="icon" data-act="cheat-mv" data-k="${k}" data-d="1" title="下移">↓</button>`;
+      const tools = `${mv}<button class="icon danger" data-act="cheat-rm" data-k="${k}" title="${it.type === 'note' ? '刪除這張文字卡' : '隱藏這張卡片，食譜不會被刪除'}">✕</button>`;
       if (it.type === 'note') return `<div class="cheat-item note">
         <div class="ci-row">${DRAG}<input type="text" placeholder="卡片標題（例如：出餐順序、注意事項）" data-cheat-note="${k}" data-f="title" value="${esc(it.title || '')}">${tools}</div>
         <textarea rows="3" placeholder="內容，一行一點" data-cheat-note="${k}" data-f="text">${esc(it.text || '')}</textarea></div>`;
       const r = getRecipe(it.recipeId);
+      if (it.off) return `<div class="cheat-item off"><div class="ci-row">${DRAG}<span class="pname">${esc(r.name)}</span><span class="badge">已隱藏</span><div class="spacer"></div>
+        ${mv}<button class="btn sm" data-act="cheat-show" data-k="${k}">顯示</button></div></div>`;
       return `<div class="cheat-item"><div class="ci-row">${DRAG}<span class="pname">${esc(r.name)}</span>
         <label class="inline">×<input type="text" autocomplete="off" placeholder="2 或 /3" data-cheat-mult="${k}" value="${multText(it.mult)}"></label>
         <span class="muted small" id="cy${k}">${fmt(r.yieldQty * it.mult)} ${esc(r.yieldUnit)}</span>${tools}</div>
@@ -1369,15 +1378,12 @@
   }
 
   function openCheatEditor() {
-    const avail = [...db.recipes].sort((a, b) => a.name.localeCompare(b.name, 'zh-Hant'));
     const m = $('#modal');
     m.innerHTML = `<div class="modal-back" data-cheat-back><div class="modal cheat-modal" id="cheatEditor" role="dialog" aria-modal="true">
         <div class="cm-head"><h3>編輯小抄卡片</h3><div class="spacer"></div><button class="icon" data-act="cheat-close" title="關閉">✕</button></div>
-        <p class="hint">把食譜依倍數濃縮成精簡卡片（份量、食材用量、步驟），列印後可剪下貼在工作台；也能加自訂文字卡。每道菜下方的框可以直接打步驟，一行一步，會存回食譜。按住 ⠿ 拖曳可以調整順序。</p>
+        <p class="hint">所有食譜都會自動變成卡片，新增的排在最後，刪除食譜時卡片也會移除。按住 ⠿ 拖曳可以調整順序，不想印的按 ✕ 隱藏。每道菜下方的框可以直接打步驟，一行一步，會存回食譜。</p>
         <div class="cm-scroll"><div class="cheat-items" id="cheatItems"></div></div>
         <div class="plan-add cm-add">
-          ${avail.length ? `<select id="cheatAdd">${avail.map(r => `<option value="${esc(r.id)}">${esc(r.name)}</option>`).join('')}</select>
-          <button class="btn primary" data-act="cheat-add">＋ 食譜</button>` : ''}
           <button class="btn" data-act="cheat-note">＋ 文字卡</button>
           ${db.plan.length ? '<button class="btn" data-act="cheat-from-plan">從備料單匯入</button>' : ''}
         </div>
@@ -1406,14 +1412,15 @@
   }
 
   function viewCheat() {
-    const c = cheatCfg();
+    const c = cheatCfg(), shown = cheatShown(c).length;
     const opt = (k, v, t) => `<option value="${v}" ${c[k] === v ? 'selected' : ''}>${t}</option>`;
     const box = (k, t) => `<label class="ck-lbl"><input type="checkbox" data-cheat-opt="${k}" ${c[k] ? 'checked' : ''}> ${t}</label>`;
     return `<div class="page cheat-page">
       <div class="page-head no-print"><h1 class="head-title">小抄</h1><div class="spacer"></div>
-        <button class="btn" data-act="cheat-edit">📋 編輯卡片（${c.items.length}）</button>
-        ${c.items.length ? '<button class="btn primary" data-act="cheat-print">🖨 列印小抄</button><button class="btn ghost" data-act="cheat-clear">清空</button>' : ''}</div>
-      ${c.items.length ? '' : `<div class="empty no-print"><p>還沒有小抄卡片。</p><button class="btn primary" data-act="cheat-edit">＋ 加入卡片</button></div>`}
+        <button class="btn" data-act="cheat-edit">📋 編輯卡片（${shown}）</button>
+        ${shown ? '<button class="btn primary" data-act="cheat-print">🖨 列印小抄</button><button class="btn ghost" data-act="cheat-clear">清空</button>' : ''}</div>
+      ${shown ? '' : c.items.length ? `<div class="empty no-print"><p>卡片都隱藏了。</p><button class="btn primary" data-act="cheat-edit">重新顯示卡片</button></div>`
+        : `<div class="empty no-print"><p>還沒有小抄卡片，新增食譜後會自動出現在這裡。</p><a class="btn primary" href="#/new">＋ 新增食譜</a> <button class="btn" data-act="cheat-edit">＋ 文字卡</button></div>`}
       <section class="card no-print">
         <h2>內容與版面</h2>
         <div class="cheat-opts">
@@ -1462,8 +1469,10 @@
       item.classList.remove('dragging');
       const to = list().indexOf(item);
       if (to === from) return;
-      const a = cheatCfg().items, [x] = a.splice(from, 1);
-      a.splice(to, 0, x);
+      const a = cheatCfg().items, vis = box.id === 'cheatCards' ? a.filter(y => !y.off) : [...a];
+      const [x] = vis.splice(from, 1), next = vis[to];
+      a.splice(a.indexOf(x), 1);
+      if (next) a.splice(a.indexOf(next), 0, x); else a.push(x);
       persist();
       const sc = box.closest('.cm-scroll'), st = sc && sc.scrollTop;
       refreshCheat();
@@ -1532,7 +1541,7 @@
     const host = document.createElement('div');
     host.className = `pdf-render cheat-grid lay-one fs-${c.size}`;
     host.style.cssText = `position:fixed;left:-10000px;top:0;width:${colPx}px`;
-    host.innerHTML = c.items.map(it => cheatCard(it, c)).join('');
+    host.innerHTML = cheatShown(c).map(it => cheatCard(it, c)).join('');
     document.body.appendChild(host);
     try {
       const imgs = [];
@@ -1563,7 +1572,7 @@
   }
 
   async function cheatPdf() {
-    if (!cheatCfg().items.length) return toast('請先加入卡片');
+    if (!cheatShown(cheatCfg()).length) return toast('請先顯示卡片');
     sharePdf(buildCheatPdf);
   }
   async function sharePdf(build) {
@@ -1593,7 +1602,7 @@
     if (!el) return;
     const c = cheatCfg();
     el.className = `cheat-grid lay-${c.layout} fs-${c.size}`;
-    el.innerHTML = c.items.map(it => cheatCard(it, c)).join('');
+    el.innerHTML = cheatShown(c).map(it => cheatCard(it, c)).join('');
   }
 
   // ---------------------------------------------------------------- SOP 主資料
@@ -3127,8 +3136,8 @@
   };
   const ACT_TIPS = {
     add: '新增一列', 'add-head': '新增小標題，把食材分段', addplan: '把這道菜依目前倍數加到備料單', anchor: '輸入手邊現有的量，自動反推倍數', bulk: '一次貼上多行文字，每行變成一列',
-    'cancel-edit': '放棄這次修改，回到上一頁', cat: '只顯示這個分類的食譜', 'cheat-add': '把選單中的食譜加成小抄卡片', 'cheat-clear': '清空所有小抄卡片，食譜不會被刪除', 'cheat-close': '關閉這個視窗', 'cheat-edit': '新增、移除卡片，調整倍數和步驟',
-    'cheat-from-plan': '把備料單的菜色全部做成小抄卡片', 'cheat-from-recipe': '把這道菜依目前倍數加到小抄', 'cheat-mv': '調整卡片順序', 'cheat-note': '新增一張自己打字的卡片', 'cheat-print': '列印目前的小抄卡片', 'cheat-rm': '從小抄移除這張卡片，食譜不會被刪除',
+    'cancel-edit': '放棄這次修改，回到上一頁', cat: '只顯示這個分類的食譜', 'cheat-show': '讓這張卡片重新出現在小抄', 'cheat-clear': '隱藏所有食譜卡片、刪除文字卡，食譜不會被刪除', 'cheat-close': '關閉這個視窗', 'cheat-edit': '隱藏或顯示卡片，調整順序、倍數和步驟',
+    'cheat-from-plan': '把備料單的菜色全部做成小抄卡片', 'cheat-from-recipe': '把小抄這張卡片改成目前倍數', 'cheat-mv': '調整卡片順序', 'cheat-note': '新增一張自己打字的卡片', 'cheat-print': '列印目前的小抄卡片', 'cheat-rm': '隱藏這張卡片，食譜不會被刪除',
     check: '勾選表示這項已備好', 'cloud-connect': '用網址和密碼連到 Google 雲端同步資料', 'cloud-off': '這台裝置停止同步，雲端資料保留', 'cloud-pill': '雲端同步狀態，點一下查看或立即同步', 'cloud-sync': '馬上和雲端同步一次',
     'delete-recipe': '刪除這道食譜', dup: '複製一份，再改成新食譜', export: '把所有資料存成備份檔', 'inv-copy': '把當天訂貨量整理成文字，可貼到 LINE', 'inv-day': '切換顯示哪一天或整週', 'inv-items': '編輯品項的品號、規格、單價與停用狀態',
     'inv-print': '列印這週的盤點訂貨表', 'inv-week': '切換週次', 'kbd-help': '查看所有鍵盤快捷鍵',
@@ -3351,20 +3360,20 @@
       }
       case 'sop-photo-rm': { const o = getSop(route.id); o.photo = ''; sopTouch(o); render(); break; }
       case 'cheat-close': closeCheatEditor(); break;
-      case 'cheat-add': {
-        const id = $('#cheatAdd').value;
-        if (cheatCfg().items.some(x => x.recipeId === id)) { toast('這道菜已經在小抄裡了'); break; }
-        cheatAddRecipe(id, 1); persist(); refreshCheat(); break;
-      }
       case 'cheat-note': cheatCfg().items.push({ type: 'note', title: '', text: '' }); persist(); refreshCheat(true); break;
-      case 'cheat-rm': cheatCfg().items.splice(+el.dataset.k, 1); persist(); refreshCheat(); break;
+      case 'cheat-rm': {
+        const a = cheatCfg().items, k = +el.dataset.k;
+        if (a[k].type === 'note') a.splice(k, 1); else a[k].off = true;
+        persist(); refreshCheat(); break;
+      }
+      case 'cheat-show': delete cheatCfg().items[+el.dataset.k].off; persist(); refreshCheat(); break;
       case 'cheat-mv': {
         const a = cheatCfg().items, k = +el.dataset.k, j = k + +el.dataset.d;
         if (j >= 0 && j < a.length) { [a[k], a[j]] = [a[j], a[k]]; persist(); refreshCheat(); }
         break;
       }
       case 'cheat-print': if (IS_MOBILE) cheatPdf(); else { flush(); window.print(); } break;
-      case 'cheat-clear': if (await confirmBox('清空小抄', '確定要清空所有小抄卡片嗎？（食譜不會被刪除）', '清空', true)) { cheatCfg().items = []; persist(); refreshCheat(); } break;
+      case 'cheat-clear': if (await confirmBox('清空小抄', '食譜卡片會全部隱藏，文字卡會刪除。食譜不會被刪除，之後可以在「編輯卡片」重新顯示。', '清空', true)) { const c = cheatCfg(); c.items = c.items.filter(x => x.type !== 'note'); c.items.forEach(x => { x.off = true; }); persist(); refreshCheat(); } break;
       case 'plan-clear': if (await confirmBox('清空備料單', '確定要清空備料單嗎？（食譜不會被刪除）', '清空', true)) { db.plan = []; persist(); render(); } break;
       // 單價
       case 'label-connect':
