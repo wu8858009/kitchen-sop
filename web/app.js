@@ -2,7 +2,7 @@
 (() => {
   'use strict';
   const U = window.KUnits;
-  const APP_VERSION = '2.7.6';
+  const APP_VERSION = '2.7.7';
   const IS_DESKTOP = /[?&]desktop=1\b/.test(location.search);
 
   const $ = (s, el = document) => el.querySelector(s);
@@ -986,7 +986,7 @@
   const LABEL_DOTS = 8;                       // 203 dpi ≒ 每公釐 8 點
   const LABEL_MAX_W = 72;                     // B3S 列印頭 576 點 = 72 公釐
   const LABEL_SITE = 'https://wu8858009.github.io/kitchen-sop/';
-  const NIIM_LIB = 'vendor/niimbluelib.min.js?v=38';
+  const NIIM_LIB = 'vendor/niimbluelib.min.js?v=39';
   const labelForm = { name: '', qty: '', note: '', made: null, exp: '' };   // made：null = 今天，'' = 不印
   let niim = null;                            // 已連線的印表機
   let labelQ = '';                            // 已儲存標籤的搜尋字
@@ -1322,7 +1322,7 @@
 
   // ---------------------------------------------------------------- 小抄
   // 存在 settings.cheat，跟著設定一起同步到雲端
-  const CHEAT_DEF = { items: [], ing: true, steps: 'key', notes: true, cost: false, vi: true, layout: 'two', size: 'm' };
+  const CHEAT_DEF = { items: [], ing: true, steps: 'key', notes: true, cost: false, vi: true, layout: 'two', size: 'm', group: 'page', only: '' };
   function cheatCfg() {
     const c = Object.assign({}, CHEAT_DEF, db.settings.cheat || {});
     const ids = new Set(db.recipes.map(r => r.id));
@@ -1336,7 +1336,22 @@
     c.items = c.items.map(x => (x.type === 'note' ? x : sorted.shift()));
     return (db.settings.cheat = c);
   }
-  const cheatShown = c => c.items.filter(x => !x.off);
+  const cheatCat = r => r.category.trim() || '未分類';
+  const cheatCats = c => [...new Set(c.items.filter(x => x.type !== 'note').map(x => cheatCat(getRecipe(x.recipeId))))];
+  // 依分類分段：卡片已照分類排好，文字卡歸在它前面那一類；最前面的文字卡沒有分類，每次都會印
+  function cheatGroups(c) {
+    const only = cheatCats(c).includes(c.only) ? c.only : '', out = [];
+    let g = null;
+    for (const it of c.items) {
+      const r = it.type === 'note' ? null : getRecipe(it.recipeId);
+      const cat = r ? cheatCat(r) : g ? g.cat : '';
+      if (!g || g.cat !== cat) out.push(g = { cat, vi: r ? r.categoryVi : '', items: [] });
+      if (!it.off) g.items.push(it);
+    }
+    return out.filter(x => x.items.length && (!only || !x.cat || x.cat === only));
+  }
+  const cheatShown = c => cheatGroups(c).flatMap(g => g.items);
+  const cheatCatTitle = g => `<h2 class="cat-title">${bv(g.cat, g.vi)}</h2>`;
   function cheatAddRecipe(id, mult) {
     const c = cheatCfg(), it = c.items.find(x => x.type !== 'note' && x.recipeId === id);
     if (it) { it.mult = mult; delete it.off; } else c.items.push({ type: 'recipe', recipeId: id, mult });
@@ -1432,6 +1447,8 @@
           ${box('ing', '食材用量')}${box('notes', '食譜備註')}${box('cost', '成本')}${box('vi', '越南文（Tiếng Việt）')}
           <label class="fld inline-fld">步驟<select data-cheat-opt="steps">${opt('steps', 'key', '只列重點步驟')}${opt('steps', 'all', '全部步驟')}${opt('steps', 'none', '不列步驟')}</select></label>
           <label class="fld inline-fld">版面<select data-cheat-opt="layout">${opt('layout', 'two', '兩欄小卡')}${opt('layout', 'one', '單欄')}${opt('layout', 'page', '一頁一張')}</select></label>
+          <label class="fld inline-fld">分類<select data-cheat-opt="group">${opt('group', 'page', '依分類，每類換頁')}${opt('group', 'head', '依分類，不換頁')}${opt('group', 'none', '不分類')}</select></label>
+          <label class="fld inline-fld">列印範圍<select data-cheat-opt="only"><option value="">全部分類</option>${cheatCats(c).map(x => `<option value="${esc(x)}" ${c.only === x ? 'selected' : ''}>${esc(x)}</option>`).join('')}</select></label>
           <label class="fld inline-fld">字級<select data-cheat-opt="size">${opt('size', 's', '小')}${opt('size', 'm', '中')}${opt('size', 'l', '大')}</select></label>
           <label class="fld inline-fld">單位${unitModeSelect('unitMode4')}</label>
         </div>
@@ -1457,14 +1474,14 @@
       else { const edge = 60, h = window.innerHeight; if (ev.clientY < edge) window.scrollBy(0, -12); else if (ev.clientY > h - edge) window.scrollBy(0, 12); }
       const el = document.elementFromPoint(ev.clientX, ev.clientY);
       const over = el && el.closest(sel);
-      if (!over || over === item || over.parentNode !== box) return;
+      if (!over || over === item || !box.contains(over)) return;
       // 換位置後指標要仍在被拖曳的卡片上，否則卡片高度不同時會來回跳
       const r = over.getBoundingClientRect(), ir = item.getBoundingClientRect();
       const down = list().indexOf(over) > list().indexOf(item);
       const sameRow = Math.abs(r.top - ir.top) < 10;
       const mid = r.top + r.height / 2;
       if (!sameRow && (down ? ev.clientY < Math.min(mid, r.bottom - ir.height) : ev.clientY > Math.max(mid, r.top + ir.height))) return;
-      box.insertBefore(item, down ? over.nextSibling : over);
+      over.parentNode.insertBefore(item, down ? over.nextSibling : over);
     };
     // 監聽 window：元素在 DOM 中移動時會失去 pointer capture
     const up = () => {
@@ -1474,7 +1491,7 @@
       item.classList.remove('dragging');
       const to = list().indexOf(item);
       if (to === from) return;
-      const a = cheatCfg().items, vis = box.id === 'cheatCards' ? a.filter(y => !y.off) : [...a];
+      const c = cheatCfg(), a = c.items, vis = box.id === 'cheatCards' ? cheatShown(c) : [...a];
       const [x] = vis.splice(from, 1), next = vis[to];
       a.splice(a.indexOf(x), 1);
       if (next) a.splice(a.indexOf(next), 0, x); else a.push(x);
@@ -1546,32 +1563,44 @@
     const host = document.createElement('div');
     host.className = `pdf-render cheat-grid lay-one fs-${c.size}`;
     host.style.cssText = `position:fixed;left:-10000px;top:0;width:${colPx}px`;
-    host.innerHTML = cheatShown(c).map(it => cheatCard(it, c)).join('');
+    const grouped = c.group !== 'none';
+    host.innerHTML = grouped
+      ? cheatGroups(c).map(g => (g.cat ? cheatCatTitle(g) : '') + g.items.map(it => cheatCard(it, c)).join('')).join('')
+      : cheatShown(c).map(it => cheatCard(it, c)).join('');
     document.body.appendChild(host);
     try {
-      const imgs = [];
-      for (const card of host.querySelectorAll('.cheat-card')) {
-        const cv = await window.html2canvas(card, { scale: 2, backgroundColor: '#ffffff' });
-        imgs.push({ data: cv.toDataURL('image/jpeg', 0.9), w: colPx * mmPerPx, h: cv.height / 2 * mmPerPx });
+      const secs = [];
+      for (const el of host.children) {
+        const cv = await window.html2canvas(el, { scale: 2, backgroundColor: '#ffffff' });
+        const img = { data: cv.toDataURL('image/jpeg', 0.9), w: colPx * mmPerPx, h: cv.height / 2 * mmPerPx };
+        if (el.classList.contains('cat-title')) secs.push({ title: img, imgs: [] });
+        else { if (!secs.length) secs.push({ title: null, imgs: [] }); secs[secs.length - 1].imgs.push(img); }
       }
       const pdf = new window.jspdf.jsPDF({ unit: 'mm', format: 'a4' });
-      const maxH = PAGE_H - M * 2;
+      const maxH = PAGE_H - M * 2, bottom = PAGE_H - M;
       let y = M, first = true;
       const place = (img, x, top) => {
-        const k = Math.min(1, maxH / img.h); // 比一頁還高的卡片縮小放進一頁
+        const k = Math.min(1, (bottom - top) / img.h); // 比剩下空間還高的卡片縮小放進去
         pdf.addImage(img.data, 'JPEG', x, top, img.w * k, img.h * k);
         return img.h * k;
       };
       const newPage = () => { if (!first) pdf.addPage(); first = false; y = M; };
       newPage();
       const per = two ? 2 : 1;
-      for (let i = 0; i < imgs.length; i += per) {
-        const row = imgs.slice(i, i + per);
-        const rowH = Math.min(maxH, Math.max(...row.map(r => r.h)));
-        if (c.layout === 'page' ? i > 0 : y + rowH > PAGE_H - M && y > M) newPage();
-        row.forEach((img, k) => place(img, M + k * (img.w + GAP), y));
-        y += rowH + GAP;
-      }
+      const heightOf = row => Math.min(maxH, Math.max(...row.map(r => r.h)));
+      secs.forEach((sec, n) => {
+        if (n > 0 && (c.group === 'page' || c.layout === 'page')) newPage();
+        if (sec.title) { // 標題不和第一排卡片分開
+          if (y + sec.title.h + 1 + heightOf(sec.imgs.slice(0, per)) > bottom && y > M) newPage();
+          y += place(sec.title, M, y) + 1;
+        }
+        for (let i = 0; i < sec.imgs.length; i += per) {
+          const row = sec.imgs.slice(i, i + per), rowH = heightOf(row);
+          if (i > 0 ? (c.layout === 'page' || (y + rowH > bottom && y > M)) : (!sec.title && y + rowH > bottom && y > M)) newPage();
+          row.forEach((img, k) => place(img, M + k * (img.w + GAP), y));
+          y += Math.min(rowH, bottom - y) + GAP;
+        }
+      });
       return new File([pdf.output('blob')], `小抄_${dateStr()}.pdf`, { type: 'application/pdf' });
     } finally { host.remove(); }
   }
@@ -1606,8 +1635,14 @@
     const el = $('#cheatCards');
     if (!el) return;
     const c = cheatCfg();
-    el.className = `cheat-grid lay-${c.layout} fs-${c.size}`;
-    el.innerHTML = cheatShown(c).map(it => cheatCard(it, c)).join('');
+    const grid = `cheat-grid lay-${c.layout} fs-${c.size}`;
+    if (c.group === 'none') {
+      el.className = grid;
+      el.innerHTML = cheatShown(c).map(it => cheatCard(it, c)).join('');
+      return;
+    }
+    el.className = c.group === 'page' ? 'cheat-cats cat-page' : 'cheat-cats';
+    el.innerHTML = cheatGroups(c).map(g => `<section class="cheat-cat">${g.cat ? cheatCatTitle(g) : ''}<div class="${grid}">${g.items.map(it => cheatCard(it, c)).join('')}</div></section>`).join('');
   }
 
   // ---------------------------------------------------------------- SOP 主資料
@@ -3158,7 +3193,7 @@
     name: '印在標籤最上方，可從食譜、SOP、盤點品項挑選', qty: '例如 2 公斤；留空就不印', made: '預設今天；清空就不印', days: '填天數會自動算出到期日', exp: '也可以直接選日期，保存天數會清空', who: '留空就不印', note: '例如保存方式；留空就不印', copies: '要印幾張',
     size: '選和標籤紙相同的尺寸', w: '標籤紙寬度，B3S 最大可印 72 公釐', h: '標籤紙高度', paper: '選和標籤紙相同的種類，一般貼紙選間隙紙', density: '數字越大印得越黑', task: '連得上卻印不出來時才需要換', a4fill: '勾選就排滿一頁；不勾就依「張數」排版',
   };
-  const CHEAT_OPT_TIPS = { ing: '卡片上顯示食材用量', notes: '卡片上顯示食譜備註', cost: '卡片上顯示成本', vi: '卡片上加入越南文', steps: '選擇卡片要列出哪些步驟；沒標重點的菜會全部列出', layout: '卡片的排列方式', size: '卡片的字體大小' };
+  const CHEAT_OPT_TIPS = { group: '依食譜分類分段，可以讓每個分類從新的一頁開始', only: '只顯示和列印這個分類；最前面的文字卡也會一起印', ing: '卡片上顯示食材用量', notes: '卡片上顯示食譜備註', cost: '卡片上顯示成本', vi: '卡片上加入越南文', steps: '選擇卡片要列出哪些步驟；沒標重點的菜會全部列出', layout: '卡片的排列方式', size: '卡片的字體大小' };
   const ID_TIPS = { mult: '輸入倍數，例如 2、1.5 或 /3', target: '輸入想要的份量，自動算出倍數', planAdd: '選擇要加入備料單的菜', cheatAdd: '選擇要做成卡片的食譜', labelQ: '用品名搜尋已儲存的標籤', invEdStop: '顯示或收起已停用的品項' };
   const TEXT_TIPS = { '選擇照片': '選一張照片放在這裡', '📷 照片辨識': '拍下或選擇紙本 SOP，自動辨識填入表格', '📷 從照片建立': '拍下或選擇紙本 SOP，自動建立一份新的', '⬆ 上傳鈴聲': '用自己的音檔當計時器提示音', '⬆ 匯入備份': '從備份檔還原資料', '雲端設定說明': '查看 Google 雲端同步的設定步驟' };
   const HREF_TIPS = [[/^#\/new/, '新增一道食譜'], [/^#\/edit\//, '編輯這道食譜的內容'], [/^#\/r\//, '開啟這道食譜'], [/^#\/sop\//, '開啟這份 SOP'], [/^#\/sops$/, '回 SOP 列表'], [/^#\/prices$/, '開啟食材單價表'], [/^#\/?$/, '回食譜列表']];
@@ -3566,7 +3601,9 @@
     }
     if (t.dataset.cheatOpt) {
       cheatCfg()[t.dataset.cheatOpt] = t.type === 'checkbox' ? t.checked : t.value;
-      persist(); updateCheat(); return;
+      persist();
+      if (t.dataset.cheatOpt === 'only') refreshCheat(); else updateCheat(); // 範圍會改變卡片數和列印按鈕
+      return;
     }
     if (!act) return;
     if (act === 'unitmode') {
@@ -3655,6 +3692,6 @@
 
   // 供桌面版自我測試使用
   window.__kitchenOcr = t => ocrCheck(parseOcrText(t), '');
-  window.__kitchen = { get db() { return db; }, persist, U, version: APP_VERSION, labelSend, mergeLabels, labelA4Pdf };
+  window.__kitchen = { get db() { return db; }, persist, U, version: APP_VERSION, labelSend, mergeLabels, labelA4Pdf, buildCheatPdf };
   init();
 })();
