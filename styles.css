@@ -624,3 +624,12 @@ select { max-width: 100%; }
 #tip.show { opacity: 1; visibility: visible; }
 @media print { #tip { display: none !important; } }
 .cheat-item.off .pname { color: var(--muted); }
+.cheat-cat { margin-top: 16px; }
+.cat-title { font-size: 1.2rem; margin: 0 0 6px; padding: 2px 0 2px 10px; border-left: 4px solid var(--accent); }
+.pdf-render .cat-title { color: #000; background: #fff; border-left-color: #000; }
+@media print {
+  .cheat-cat { margin-top: 10pt; }
+  .cheat-cat:first-child { margin-top: 0; }
+  .cat-title { font-size: 14pt; color: #000; border-left-color: #000; margin-bottom: 6pt; break-after: avoid; }
+  .cat-page .cheat-cat + .cheat-cat { break-before: page; margin-top: 0; }
+}
