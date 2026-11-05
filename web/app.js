@@ -2,7 +2,7 @@
 (() => {
   'use strict';
   const U = window.KUnits;
-  const APP_VERSION = '2.8.1';
+  const APP_VERSION = '2.8.2';
   const IS_DESKTOP = /[?&]desktop=1\b/.test(location.search);
 
   const $ = (s, el = document) => el.querySelector(s);
@@ -989,7 +989,7 @@
   const LABEL_DOTS = 8;                       // 203 dpi ≒ 每公釐 8 點
   const LABEL_MAX_W = 72;                     // B3S 列印頭 576 點 = 72 公釐
   const LABEL_SITE = 'https://wu8858009.github.io/kitchen-sop/';
-  const NIIM_LIB = 'vendor/niimbluelib.min.js?v=41';
+  const NIIM_LIB = 'vendor/niimbluelib.min.js?v=42';
   const labelForm = { name: '', qty: '', note: '', made: null, exp: '' };   // made：null = 今天，'' = 不印
   let niim = null;                            // 已連線的印表機
   let labelQ = '';                            // 已儲存標籤的搜尋字
@@ -3208,6 +3208,25 @@
 
   // ---------------------------------------------------------------- 事件
   document.addEventListener('click', e => { if (e.target.matches && e.target.matches('[data-cheat-back]')) closeCheatEditor(); });
+  // ---------------------------------------------------------------- 點圖片放大
+  // 獨立於 #modal，編輯視窗裡點開再關掉也不會影響視窗內容；列表縮圖在連結裡，點了是進食譜，不放大
+  const ZOOM_IMG = '.cc-photo, .hero-img, .photo-row img';
+  const zoomBox = document.createElement('div');
+  zoomBox.id = 'zoom'; zoomBox.className = 'no-print'; zoomBox.setAttribute('role', 'dialog'); zoomBox.setAttribute('aria-label', '放大的照片');
+  zoomBox.innerHTML = '<img alt=""><button class="icon" aria-label="關閉">✕</button>';
+  document.body.appendChild(zoomBox);
+  const zoomClose = () => { zoomBox.classList.remove('show'); zoomBox.firstChild.removeAttribute('src'); };
+  zoomBox.addEventListener('click', zoomClose);
+  document.addEventListener('click', e => {
+    const img = e.target.closest && e.target.closest(ZOOM_IMG);
+    if (!img || zoomBox.contains(img)) return;
+    zoomBox.firstChild.src = img.src;
+    zoomBox.classList.add('show');
+  });
+  window.addEventListener('keydown', e => {
+    if (e.key === 'Escape' && zoomBox.classList.contains('show')) { e.preventDefault(); e.stopPropagation(); zoomClose(); } // 只關照片，不關後面的編輯視窗
+  }, true);
+
   // ---------------------------------------------------------------- 滑鼠停留說明
   // 依按鈕的 data-act 查表，新頁面重畫也不用另外綁；手機沒有滑鼠就不顯示
   const TAB_TIPS = {
@@ -3257,6 +3276,7 @@
   let tipEl = null, tipTimer = 0;
   function tipText(el) {
     if (el.dataset.tip) return el.dataset.tip;
+    if (el.matches(ZOOM_IMG)) return '點一下放大';
     return (el.dataset.act && ACT_TIPS[el.dataset.act]) || (el.dataset.tab && TAB_TIPS[el.dataset.tab]) || (el.dataset.ed && ED_TIPS[el.dataset.ed]) || (el.dataset.label && LABEL_TIPS[el.dataset.label]) || tipOther(el);
   }
   const tipTarget = t => {
