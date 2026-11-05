@@ -2,7 +2,7 @@
 (() => {
   'use strict';
   const U = window.KUnits;
-  const APP_VERSION = '2.8.0';
+  const APP_VERSION = '2.8.1';
   const IS_DESKTOP = /[?&]desktop=1\b/.test(location.search);
 
   const $ = (s, el = document) => el.querySelector(s);
@@ -989,7 +989,7 @@
   const LABEL_DOTS = 8;                       // 203 dpi ≒ 每公釐 8 點
   const LABEL_MAX_W = 72;                     // B3S 列印頭 576 點 = 72 公釐
   const LABEL_SITE = 'https://wu8858009.github.io/kitchen-sop/';
-  const NIIM_LIB = 'vendor/niimbluelib.min.js?v=40';
+  const NIIM_LIB = 'vendor/niimbluelib.min.js?v=41';
   const labelForm = { name: '', qty: '', note: '', made: null, exp: '' };   // made：null = 今天，'' = 不印
   let niim = null;                            // 已連線的印表機
   let labelQ = '';                            // 已儲存標籤的搜尋字
@@ -1348,7 +1348,7 @@
 
   // ---------------------------------------------------------------- 小抄
   // 存在 settings.cheat，跟著設定一起同步到雲端
-  const CHEAT_DEF = { items: [], ing: true, steps: 'key', notes: true, shelf: true, cost: false, vi: true, layout: 'two', size: 'm', group: 'page', only: '' };
+  const CHEAT_DEF = { items: [], ing: true, steps: 'key', notes: true, shelf: true, photo: 's', cost: false, vi: true, layout: 'two', size: 'm', group: 'page', only: '' };
   function cheatCfg() {
     const c = Object.assign({}, CHEAT_DEF, db.settings.cheat || {});
     const ids = new Set(db.recipes.map(r => r.id));
@@ -1400,6 +1400,11 @@
       return `<div class="cheat-item"><div class="ci-row"><span class="pname">${esc(r.name)}</span>
         <label class="inline">×<input type="text" autocomplete="off" placeholder="2 或 /3" data-cheat-mult="${k}" value="${multText(it.mult)}"></label>
         <span class="muted small" id="cy${k}">${fmt(r.yieldQty * it.mult)} ${esc(r.yieldUnit)}</span>${tools}</div>
+        <div class="photo-row ci-photo">
+          ${r.photo ? `<img src="${r.photo}" alt="">` : '<div class="photo-ph">🍲</div>'}
+          <label class="btn sm" title="選一張照片顯示在卡片上，也會存成這道食譜的照片">${r.photo ? '更換照片' : '＋ 照片'}<input type="file" accept="image/*" data-act-change="cheat-photo" data-k="${k}" hidden></label>
+          ${r.photo ? `<button class="btn sm ghost" data-act="cheat-photo-rm" data-k="${k}">移除</button>` : ''}
+        </div>
         <textarea rows="${Math.max(2, r.steps.length)}" placeholder="製作步驟，一行一步（會存回這道食譜）" data-cheat-steps="${k}">${esc(r.steps.map(s => s.text).join('\n'))}</textarea></div>`;
     }).join('') || '<p class="muted">尚未加入卡片。</p>';
   }
@@ -1427,7 +1432,7 @@
     const m = $('#modal');
     m.innerHTML = `<div class="modal-back" data-cheat-back><div class="modal cheat-modal" id="cheatEditor" role="dialog" aria-modal="true">
         <div class="cm-head"><h3>編輯小抄卡片</h3><div class="spacer"></div><button class="icon" data-act="cheat-close" title="關閉">✕</button></div>
-        <p class="hint">所有食譜都會自動變成卡片，順序和食譜列表相同（先分類、再名稱），刪除食譜時卡片也會移除。不想印的按 ✕ 隱藏；文字卡可以按住 ⠿ 拖曳調整位置。每道菜下方的框可以直接打步驟，一行一步，會存回食譜。</p>
+        <p class="hint">所有食譜都會自動變成卡片，順序和食譜列表相同（先分類、再名稱），刪除食譜時卡片也會移除。不想印的按 ✕ 隱藏；文字卡可以按住 ⠿ 拖曳調整位置。照片會存回食譜，也會顯示在食譜頁。每道菜下方的框可以直接打步驟，一行一步，會存回食譜。</p>
         <div class="cm-scroll"><div class="cheat-items" id="cheatItems"></div></div>
         <div class="plan-add cm-add">
           <button class="btn" data-act="cheat-note">＋ 文字卡</button>
@@ -1457,6 +1462,13 @@
     if (route.name === 'cheat') { const y = window.scrollY; render(); window.scrollTo(0, y); }
   }
 
+  // 換照片後清單高度會變，留在原本捲動的位置
+  function cheatRefreshKeep() {
+    const sc = $('#cheatEditor .cm-scroll'), y = sc ? sc.scrollTop : 0;
+    refreshCheat();
+    const sc2 = $('#cheatEditor .cm-scroll');
+    if (sc2) sc2.scrollTop = y;
+  }
   function viewCheat() {
     const c = cheatCfg(), shown = cheatShown(c).length;
     const opt = (k, v, t) => `<option value="${v}" ${c[k] === v ? 'selected' : ''}>${t}</option>`;
@@ -1471,6 +1483,7 @@
         <h2>內容與版面</h2>
         <div class="cheat-opts">
           ${box('ing', '食材用量')}${box('shelf', '保存期限')}${box('notes', '食譜備註')}${box('cost', '成本')}${box('vi', '越南文（Tiếng Việt）')}
+          <label class="fld inline-fld">照片<select data-cheat-opt="photo">${opt('photo', 's', '小張')}${opt('photo', 'l', '大張')}${opt('photo', 'none', '不顯示')}</select></label>
           <label class="fld inline-fld">步驟<select data-cheat-opt="steps">${opt('steps', 'key', '只列重點步驟')}${opt('steps', 'all', '全部步驟')}${opt('steps', 'none', '不列步驟')}</select></label>
           <label class="fld inline-fld">版面<select data-cheat-opt="layout">${opt('layout', 'two', '兩欄小卡')}${opt('layout', 'one', '單欄')}${opt('layout', 'page', '一頁一張')}</select></label>
           <label class="fld inline-fld">分類<select data-cheat-opt="group">${opt('group', 'page', '依分類，每類換頁')}${opt('group', 'head', '依分類，不換頁')}${opt('group', 'none', '不分類')}</select></label>
@@ -1545,7 +1558,7 @@
         ${!paired && viOn() && vis.length ? `<ul class="cc-list vi" lang="vi">${vis.map(l => `<li>${esc(l)}</li>`).join('')}</ul>` : ''}` : `<p class="muted">${bt('（尚未填寫內容）')}</p>`}</article>`;
     }
     const r = getRecipe(it.recipeId), mult = it.mult, mode = db.settings.unitMode;
-    let body = '';
+    let body = r.photo && c.photo !== 'none' ? `<img class="cc-photo ${c.photo === 'l' ? 'big' : ''}" src="${r.photo}" alt="">` : '';
     if (c.ing && r.ingredients.length) {
       let last = null, rows = '';
       for (const i of r.ingredients) {
@@ -3210,7 +3223,7 @@
     'inv-print': '列印這週的盤點訂貨表', 'inv-week': '切換週次', 'kbd-help': '查看所有鍵盤快捷鍵',
     'label-a4': '排版到 A4 紙，用一般印表機印出後沿虛線裁開', 'label-browser': '電腦版視窗不能連印表機，把這張標籤帶到 Edge／Chrome 列印', 'label-connect': '連線精臣 B3S 標籤機', 'label-disconnect': '中斷和標籤機的連線', 'label-load': '把這張標籤的內容帶入，日期用當天重算',
     'label-png': '存成 PNG 圖片，可匯入精臣 App 列印', 'label-print': '把這張標籤印到已連線的 B3S', 'label-rm': '刪除這張已儲存的標籤', 'label-save': '儲存內容，下次點一下就能帶入；相同品名會更新', 'label-sys': '用系統印表機列印，紙張設成標籤尺寸',
-    mult: '把份量換成這個倍數', mv: '調整順序', 'photo-rm': '移除這張照片', 'plan-add': '把選單中的菜加到備料單', 'plan-check': '勾選表示這項已備好', 'plan-clear': '清空備料單，食譜不會被刪除', 'plan-rm': '從備料單移除這道菜',
+    mult: '把份量換成這個倍數', mv: '調整順序', 'photo-rm': '移除這張照片', 'cheat-photo-rm': '移除這道菜的照片，食譜頁也會一起移除', 'plan-add': '把選單中的菜加到備料單', 'plan-check': '勾選表示這項已備好', 'plan-clear': '清空備料單，食譜不會被刪除', 'plan-rm': '從備料單移除這道菜',
     'price-add': '新增一筆食材單價', 'price-import': '把食譜用到、還沒有單價的食材加進來', 'price-rm': '刪除這筆單價', print: '列印這一頁', 'ring-file-rm': '移除自訂提示音，改回內建鈴聲', 'ring-test': '播放目前選的提示音', rm: '刪除這一列', 'save-recipe': '儲存這道食譜', seed: '載入內建的範例食譜',
     'sop-del': '刪除這份 SOP', 'sop-dup': '複製一份 SOP', 'sop-from-recipe': '從選擇的食譜帶入食材', 'sop-new': '新增一份空白 SOP', 'sop-photo-rm': '移除這張成品照片', 'sop-print': '列印這份 SOP 表單', 'sop-row-add': '新增一列食材', 'sop-row-mv': '調整順序', 'sop-row-rm': '刪除這一列',
     stepdone: '點一下標記這個步驟已完成', 't-add': '倒數多加 1 分鐘', 't-pause': '暫停或繼續倒數', 't-x': '關閉這個計時器', timer: '開始這個步驟的倒數計時', 'tr-draft': '用 Google 翻譯填入空白的越南文欄位', uncheck: '清除所有已勾選的食材', wake: '烹調時保持螢幕不關閉', wipe: '清除這台裝置的全部資料',
@@ -3220,7 +3233,7 @@
     name: '印在標籤最上方，可從食譜、SOP、盤點品項挑選', qty: '例如 2 公斤；留空就不印', made: '預設今天；清空就不印', days: '填天數會自動算出到期日', exp: '也可以直接選日期，保存天數會清空', who: '留空就不印', note: '例如保存方式；留空就不印', copies: '要印幾張',
     size: '選和標籤紙相同的尺寸', w: '標籤紙寬度，B3S 最大可印 72 公釐', h: '標籤紙高度', paper: '選和標籤紙相同的種類，一般貼紙選間隙紙', density: '數字越大印得越黑', task: '連得上卻印不出來時才需要換', a4fill: '勾選就排滿一頁；不勾就依「張數」排版',
   };
-  const CHEAT_OPT_TIPS = { shelf: '卡片上顯示食譜的保存期限', group: '依食譜分類分段，可以讓每個分類從新的一頁開始', only: '只顯示和列印這個分類；最前面的文字卡也會一起印', ing: '卡片上顯示食材用量', notes: '卡片上顯示食譜備註', cost: '卡片上顯示成本', vi: '卡片上加入越南文', steps: '選擇卡片要列出哪些步驟；沒標重點的菜會全部列出', layout: '卡片的排列方式', size: '卡片的字體大小' };
+  const CHEAT_OPT_TIPS = { photo: '卡片上顯示食譜照片；沒有照片的菜不會留空位，可在「編輯卡片」加照片', shelf: '卡片上顯示食譜的保存期限', group: '依食譜分類分段，可以讓每個分類從新的一頁開始', only: '只顯示和列印這個分類；最前面的文字卡也會一起印', ing: '卡片上顯示食材用量', notes: '卡片上顯示食譜備註', cost: '卡片上顯示成本', vi: '卡片上加入越南文', steps: '選擇卡片要列出哪些步驟；沒標重點的菜會全部列出', layout: '卡片的排列方式', size: '卡片的字體大小' };
   const ID_TIPS = { mult: '輸入倍數，例如 2、1.5 或 /3', target: '輸入想要的份量，自動算出倍數', planAdd: '選擇要加入備料單的菜', cheatAdd: '選擇要做成卡片的食譜', labelQ: '用品名搜尋已儲存的標籤', invEdStop: '顯示或收起已停用的品項' };
   const TEXT_TIPS = { '選擇照片': '選一張照片放在這裡', '📷 照片辨識': '拍下或選擇紙本 SOP，自動辨識填入表格', '📷 從照片建立': '拍下或選擇紙本 SOP，自動建立一份新的', '⬆ 上傳鈴聲': '用自己的音檔當計時器提示音', '⬆ 匯入備份': '從備份檔還原資料', '雲端設定說明': '查看 Google 雲端同步的設定步驟' };
   const HREF_TIPS = [[/^#\/new/, '新增一道食譜'], [/^#\/edit\//, '編輯這道食譜的內容'], [/^#\/r\//, '開啟這道食譜'], [/^#\/sop\//, '開啟這份 SOP'], [/^#\/sops$/, '回 SOP 列表'], [/^#\/prices$/, '開啟食材單價表'], [/^#\/?$/, '回食譜列表']];
@@ -3433,6 +3446,14 @@
         if (a[k].type === 'note') a.splice(k, 1); else a[k].off = true;
         persist(); refreshCheat(); break;
       }
+      case 'cheat-photo-rm': {
+        const r = getRecipe(cheatCfg().items[+el.dataset.k].recipeId);
+        const y = $('#cheatEditor .cm-scroll').scrollTop; // 確認框和編輯視窗共用 #modal，問完要開回來
+        if (await confirmBox('移除照片', `確定要移除「${r.name}」的照片嗎？食譜頁的照片也會一起移除。`, '移除', true)) { r.photo = ''; r.updatedAt = Date.now(); persist(); refreshCheat(); }
+        openCheatEditor();
+        $('#cheatEditor .cm-scroll').scrollTop = y;
+        break;
+      }
       case 'cheat-show': delete cheatCfg().items[+el.dataset.k].off; persist(); refreshCheat(); break;
       case 'cheat-mv': {
         const a = cheatCfg().items, k = +el.dataset.k, j = k + +el.dataset.d;
@@ -3604,6 +3625,13 @@
 
   document.addEventListener('change', async e => {
     const t = e.target, act = t.dataset.actChange;
+    if (act === 'cheat-photo' && t.files[0]) {
+      const file = t.files[0], it = cheatCfg().items[+t.dataset.k], r = it && getRecipe(it.recipeId);
+      t.value = '';
+      if (!r) return;
+      try { r.photo = await resizeImage(file); r.updatedAt = Date.now(); persist(); cheatRefreshKeep(); toast(`已更新「${r.name}」的照片`); } catch (err) { toast(err.message, 'err'); }
+      return;
+    }
     if (t.dataset.sopRow && /\.name$/.test(t.dataset.sopRow) && route.name === 'sop') {
       const o = getSop(route.id), x = o && o.rows[+t.dataset.sopRow.split('.')[0]];
       if (x && sopFillFromPrice(x)) {
