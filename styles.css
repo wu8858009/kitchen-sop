@@ -635,3 +635,10 @@ select { max-width: 100%; }
 }
 .shelf-line { margin-top: 4px; }
 .cc-shelf { margin-top: 6px; font-weight: 700; font-size: .92em; }
+.cc-photo { display: block; max-width: 100%; max-height: 110px; margin: 0 auto 6px; border-radius: 6px; }
+.cc-photo.big { max-height: 240px; }
+.ci-photo img, .ci-photo .photo-ph { width: 44px; height: 44px; border-radius: 8px; }
+@media print {
+  .cc-photo { max-height: 28mm; border-radius: 0; }
+  .cc-photo.big { max-height: 60mm; }
+}
