@@ -2,7 +2,7 @@
 (() => {
   'use strict';
   const U = window.KUnits;
-  const APP_VERSION = '2.8.2';
+  const APP_VERSION = '2.8.3';
   const IS_DESKTOP = /[?&]desktop=1\b/.test(location.search);
 
   const $ = (s, el = document) => el.querySelector(s);
@@ -120,6 +120,13 @@
     return { version: 1, recipes: [], prices: [], sops: [], inv: normInv(null), plan: [], settings: { unitMode: 'auto', ringTone: 'beep', ringVol: 0.8 }, deleted: {}, pricesUpdatedAt: 0, cloud: null, sync: { rev: 0, dirty: false, photos: [] } };
   }
 
+  // 雲端壞掉的照片（舊版後端存成 #ERROR!）放到 photoBad，畫面不顯示，同步時仍指向原本那張
+  const photoOk = p => /^data:image\/[\w+.-]+;base64,[A-Za-z0-9+/]*={0,2}$/.test(p);
+  function splitPhoto(x) {
+    const p = typeof x.photo === 'string' ? x.photo : '';
+    if (p && !photoOk(p)) return { photo: '', photoBad: p };
+    return { photo: p, photoBad: p ? '' : String(x.photoBad || '') };
+  }
   function normRecipe(r) {
     r = r || {};
     return {
@@ -128,7 +135,7 @@
       category: String(r.category || ''),
       yieldQty: num(r.yieldQty) || 1,
       yieldUnit: String(r.yieldUnit || '份'),
-      photo: typeof r.photo === 'string' ? r.photo : '',
+      ...splitPhoto(r),
       notes: String(r.notes || ''), shelf: String(r.shelf || ''),
       nameVi: String(r.nameVi || ''), categoryVi: String(r.categoryVi || ''), notesVi: String(r.notesVi || ''), shelfVi: String(r.shelfVi || ''),
       ingredients: (Array.isArray(r.ingredients) ? r.ingredients : []).map(i => ({
@@ -158,7 +165,7 @@
       id: String(o.id || uid()), title: String(o.title || ''),
       review: { date: String(rv.date || ''), reviewer: String(rv.reviewer || ''), reviewee: String(rv.reviewee || ''), result: rv.result === 'pass' || rv.result === 'fail' ? rv.result : '', retake: String(rv.retake || '') },
       rows: (Array.isArray(o.rows) ? o.rows : []).map(normSopRow),
-      steps: String(o.steps || ''), notes: String(o.notes || ''), photo: typeof o.photo === 'string' ? o.photo : '',
+      steps: String(o.steps || ''), notes: String(o.notes || ''), ...splitPhoto(o),
       net: o.net == null || o.net === '' ? '' : String(o.net), gross: o.gross == null || o.gross === '' ? '' : String(o.gross),
       yieldText: String(o.yieldText || ''),
       createdAt: o.createdAt || Date.now(), updatedAt: o.updatedAt || Date.now(),
@@ -989,7 +996,7 @@
   const LABEL_DOTS = 8;                       // 203 dpi ≒ 每公釐 8 點
   const LABEL_MAX_W = 72;                     // B3S 列印頭 576 點 = 72 公釐
   const LABEL_SITE = 'https://wu8858009.github.io/kitchen-sop/';
-  const NIIM_LIB = 'vendor/niimbluelib.min.js?v=42';
+  const NIIM_LIB = 'vendor/niimbluelib.min.js?v=43';
   const labelForm = { name: '', qty: '', note: '', made: null, exp: '' };   // made：null = 今天，'' = 不印
   let niim = null;                            // 已連線的印表機
   let labelQ = '';                            // 已儲存標籤的搜尋字
@@ -3029,16 +3036,15 @@
 
   function cloudPayload() {
     const photos = {};
+    // 壞照片也送出，後端會認出它原本是哪一張，不會因此把照片刪掉
+    const ref = p => { const h = p ? hashStr(p) : ''; if (h) photos[h] = p; return h; };
     const recipes = db.recipes.map(r => {
-      const { photo, ...rest } = r;
-      let h = '';
-      if (photo) { h = hashStr(photo); photos[h] = photo; }
-      return { ...rest, photoHash: h };
+      const { photo, photoBad, ...rest } = r;
+      return { ...rest, photoHash: ref(photo || photoBad) };
     });
     const sops = db.sops.map(o => {
-      const { photo, ...rest } = o;
-      let h = '';
-      if (photo) { h = hashStr(photo); photos[h] = photo; }
+      const { photo, photoBad, ...rest } = o;
+      const h = ref(photo || photoBad);
       const t = sopTotals(o);
       return { ...rest, photoHash: h, totals: { cost: t.cost, profit: t.profit } };
     });
@@ -3083,13 +3089,29 @@
     };
   }
 
+  // 雲端照片壞掉、本機還有好的：留下本機的，之後重新上傳
+  function keepGoodPhotos(list, mine) {
+    const m = new Map(mine.map(x => [x.id, x]));
+    let n = 0;
+    for (const x of list) {
+      const o = m.get(x.id);
+      if (x.photoBad && o && o.photo) { x.photo = o.photo; x.photoBad = ''; n++; }
+    }
+    return n;
+  }
+  function canFixPhotos(bad) {
+    if (!bad || !bad.length) return false;
+    const mine = new Set([...db.recipes, ...db.sops].filter(x => x.photo).map(x => hashStr(x.photo)));
+    return bad.some(h => mine.has(h));
+  }
   function applyRemote(L, merge) {
     const remote = normalizeDb(L.db);
     if (!Array.isArray(L.db && L.db.sops)) remote.sops = db.sops; // 舊版後端沒有 SOP：保留本機的
     if (!(L.db && L.db.inv)) remote.inv = db.inv;                  // 舊版後端沒有盤點訂貨：保留本機的
+    const healed = keepGoodPhotos(remote.recipes, db.recipes) + keepGoodPhotos(remote.sops, db.sops) > 0;
     const sync = { ...db.sync, rev: L.rev, photos: L.photoHashes || db.sync.photos };
     if (merge) { db = mergeDb(db, remote); db.sync = { ...sync, dirty: true }; }
-    else db = { ...remote, cloud: db.cloud, sync: { ...sync, dirty: false } };
+    else db = { ...remote, cloud: db.cloud, sync: { ...sync, dirty: healed } };
     saveLocal(true);
     refreshAfterSync();
   }
@@ -3132,8 +3154,8 @@
     try {
       for (let attempt = 0; attempt < 5; attempt++) {
         if (!db.sync.dirty) {
-          const { rev } = await cloudCall({ a: 'rev' });
-          if (rev !== db.sync.rev) {
+          const { rev, badPhotos } = await cloudCall({ a: 'rev' });
+          if (rev !== db.sync.rev || canFixPhotos(badPhotos)) {
             setSync('busy');
             const L = await cloudCall({ a: 'load' });
             applyRemote(L, db.sync.dirty); // 下載期間若有新修改就改用合併
