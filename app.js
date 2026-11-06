@@ -2,7 +2,7 @@
 (() => {
   'use strict';
   const U = window.KUnits;
-  const APP_VERSION = '2.8.5';
+  const APP_VERSION = '2.8.6';
   const IS_DESKTOP = /[?&]desktop=1\b/.test(location.search);
 
   const $ = (s, el = document) => el.querySelector(s);
@@ -996,7 +996,7 @@
   const LABEL_DOTS = 8;                       // 203 dpi ≒ 每公釐 8 點
   const LABEL_MAX_W = 72;                     // B3S 列印頭 576 點 = 72 公釐
   const LABEL_SITE = 'https://wu8858009.github.io/kitchen-sop/';
-  const NIIM_LIB = 'vendor/niimbluelib.min.js?v=45';
+  const NIIM_LIB = 'vendor/niimbluelib.min.js?v=46';
   const labelForm = { name: '', qty: '', note: '', made: null, exp: '' };   // made：null = 今天，'' = 不印
   let niim = null;                            // 已連線的印表機
   let labelQ = '';                            // 已儲存標籤的搜尋字
@@ -3251,6 +3251,36 @@
     zoomBox.dataset.name = img.alt || '照片';
     zoomBox.classList.add('show');
   });
+  // 照片按右鍵：放大或下載（電腦版視窗沒有瀏覽器的另存圖片）
+  const photoMenu = document.createElement('div');
+  photoMenu.id = 'photoMenu'; photoMenu.className = 'no-print'; photoMenu.setAttribute('role', 'menu');
+  photoMenu.innerHTML = '<button role="menuitem" data-pm="zoom">🔍 放大</button><button role="menuitem" data-pm="save">⬇ 下載照片</button>';
+  document.body.appendChild(photoMenu);
+  let menuImg = null;
+  const menuClose = () => { photoMenu.classList.remove('show'); menuImg = null; };
+  document.addEventListener('contextmenu', e => {
+    const img = e.target.closest && e.target.closest(`${ZOOM_IMG}, #zoom img`);
+    if (!img || !img.src) return menuClose();
+    e.preventDefault();
+    menuImg = img;
+    photoMenu.querySelector('[data-pm="zoom"]').hidden = zoomBox.contains(img);
+    photoMenu.classList.add('show');
+    const w = photoMenu.offsetWidth, h = photoMenu.offsetHeight;
+    photoMenu.style.left = Math.min(e.clientX, innerWidth - w - 4) + 'px';
+    photoMenu.style.top = Math.min(e.clientY, innerHeight - h - 4) + 'px';
+  });
+  photoMenu.addEventListener('click', e => {
+    e.stopPropagation();
+    const b = e.target.closest('[data-pm]'), img = menuImg;
+    menuClose();
+    if (!b || !img) return;
+    if (b.dataset.pm === 'zoom') img.click();
+    else savePhoto(img.src, zoomBox.contains(img) ? zoomBox.dataset.name : img.alt || '照片');
+  });
+  document.addEventListener('pointerdown', e => { if (!photoMenu.contains(e.target)) menuClose(); }, true);
+  window.addEventListener('keydown', e => { if (e.key === 'Escape' && photoMenu.classList.contains('show')) { e.stopPropagation(); menuClose(); } }, true);
+  window.addEventListener('scroll', menuClose, true);
+  window.addEventListener('blur', menuClose);
   // 存下 App 裡保存的那張照片（上傳時已縮到長邊 800 像素）
   async function savePhoto(src, title) {
     const ext = /^data:image\/png/.test(src) ? 'png' : 'jpg';
