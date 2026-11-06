@@ -2,7 +2,7 @@
 (() => {
   'use strict';
   const U = window.KUnits;
-  const APP_VERSION = '2.8.4';
+  const APP_VERSION = '2.8.5';
   const IS_DESKTOP = /[?&]desktop=1\b/.test(location.search);
 
   const $ = (s, el = document) => el.querySelector(s);
@@ -490,7 +490,7 @@
         <a class="btn primary" href="#/edit/${encodeURIComponent(r.id)}">編輯</a>
       </div>
       <div class="hero">
-        ${r.photo ? `<img class="hero-img" src="${r.photo}" alt="">` : ''}
+        ${r.photo ? `<img class="hero-img" src="${r.photo}" alt="${esc(r.name)}">` : ''}
         <div>
           ${r.category ? `<div class="cat">${esc(r.category)}</div>` : ''}
           <h1>${esc(r.name)}</h1>
@@ -783,7 +783,7 @@
         <div class="fld wide photo-fld">
           <span>照片</span>
           <div class="photo-row">
-            ${r.photo ? `<img src="${r.photo}" alt="">` : '<div class="photo-ph">🍲</div>'}
+            ${r.photo ? `<img src="${r.photo}" alt="${esc(r.name)}">` : '<div class="photo-ph">🍲</div>'}
             <label class="btn">選擇照片<input type="file" accept="image/*" data-act-change="photo" hidden></label>
             ${r.photo ? '<button class="btn ghost" data-act="photo-rm">移除</button>' : ''}
           </div>
@@ -996,7 +996,7 @@
   const LABEL_DOTS = 8;                       // 203 dpi ≒ 每公釐 8 點
   const LABEL_MAX_W = 72;                     // B3S 列印頭 576 點 = 72 公釐
   const LABEL_SITE = 'https://wu8858009.github.io/kitchen-sop/';
-  const NIIM_LIB = 'vendor/niimbluelib.min.js?v=44';
+  const NIIM_LIB = 'vendor/niimbluelib.min.js?v=45';
   const labelForm = { name: '', qty: '', note: '', made: null, exp: '' };   // made：null = 今天，'' = 不印
   let niim = null;                            // 已連線的印表機
   let labelQ = '';                            // 已儲存標籤的搜尋字
@@ -1408,7 +1408,7 @@
         <label class="inline">×<input type="text" autocomplete="off" placeholder="2 或 /3" data-cheat-mult="${k}" value="${multText(it.mult)}"></label>
         <span class="muted small" id="cy${k}">${fmt(r.yieldQty * it.mult)} ${esc(r.yieldUnit)}</span>${tools}</div>
         <div class="photo-row ci-photo">
-          ${r.photo ? `<img src="${r.photo}" alt="">` : '<div class="photo-ph">🍲</div>'}
+          ${r.photo ? `<img src="${r.photo}" alt="${esc(r.name)}">` : '<div class="photo-ph">🍲</div>'}
           <label class="btn sm" title="選一張照片顯示在卡片上，也會存成這道食譜的照片">${r.photo ? '更換照片' : '＋ 照片'}<input type="file" accept="image/*" data-act-change="cheat-photo" data-k="${k}" hidden></label>
           ${r.photo ? `<button class="btn sm ghost" data-act="cheat-photo-rm" data-k="${k}">移除</button>` : ''}
         </div>
@@ -1586,7 +1586,7 @@
     if (c.notes && r.notes.trim()) body += `<div class="cc-notes">${bvML(r.notes.trim(), r.notesVi)}</div>`;
     if (c.cost) { const k = recipeCost(r, mult, priceMap()); body += `<div class="cc-cost">${bt(`成本 ${money(k.total)}　每${r.yieldUnit} ${money(k.perUnit)}${k.missing ? '（部分未計）' : ''}`)}</div>`; }
     // 照片放在右側，和內容並排，印出來一眼就認得是哪道菜
-    if (r.photo && c.photo !== 'none') body = `<div class="cc-body ${c.photo === 'l' ? 'big' : ''}"><div class="cc-main">${body}</div><img class="cc-photo" src="${r.photo}" alt=""></div>`;
+    if (r.photo && c.photo !== 'none') body = `<div class="cc-body ${c.photo === 'l' ? 'big' : ''}"><div class="cc-main">${body}</div><img class="cc-photo" src="${r.photo}" alt="${esc(r.name)}"></div>`;
     return `<article class="cheat-card"><header><h3>${bv(r.name, r.nameVi)}</h3>
       <span class="cc-scale">${bt(`${mult === 1 ? '' : `× ${multText(mult)}　`}${fmt(r.yieldQty * mult)} ${r.yieldUnit}`)}</span></header>${body || `<p class="muted">${bt('（沒有勾選要顯示的內容）')}</p>`}</article>`;
   }
@@ -1824,7 +1824,7 @@
         <section class="card">
           <h2>照片</h2>
           <div class="photo-row">
-            ${o.photo ? `<img src="${o.photo}" alt="">` : '<div class="photo-ph">📷</div>'}
+            ${o.photo ? `<img src="${o.photo}" alt="${esc(o.title)}">` : '<div class="photo-ph">📷</div>'}
             <label class="btn">選擇照片<input type="file" accept="image/*" data-act-change="sop-photo" hidden></label>
             ${o.photo ? '<button class="btn ghost" data-act="sop-photo-rm">移除</button>' : ''}
           </div>
@@ -3237,16 +3237,38 @@
   const ZOOM_IMG = '.cc-photo, .hero-img, .photo-row img';
   const zoomBox = document.createElement('div');
   zoomBox.id = 'zoom'; zoomBox.className = 'no-print'; zoomBox.setAttribute('role', 'dialog'); zoomBox.setAttribute('aria-label', '放大的照片');
-  zoomBox.innerHTML = '<img alt=""><button class="icon" aria-label="關閉">✕</button>';
+  zoomBox.innerHTML = '<img alt=""><button class="icon zoom-x" aria-label="關閉">✕</button><button class="btn zoom-dl">⬇ 下載照片</button>';
   document.body.appendChild(zoomBox);
   const zoomClose = () => { zoomBox.classList.remove('show'); zoomBox.firstChild.removeAttribute('src'); };
-  zoomBox.addEventListener('click', zoomClose);
+  zoomBox.addEventListener('click', e => {
+    if (e.target.closest('.zoom-dl')) { e.stopPropagation(); savePhoto(zoomBox.firstChild.src, zoomBox.dataset.name); return; }
+    zoomClose();
+  });
   document.addEventListener('click', e => {
     const img = e.target.closest && e.target.closest(ZOOM_IMG);
     if (!img || zoomBox.contains(img)) return;
     zoomBox.firstChild.src = img.src;
+    zoomBox.dataset.name = img.alt || '照片';
     zoomBox.classList.add('show');
   });
+  // 存下 App 裡保存的那張照片（上傳時已縮到長邊 800 像素）
+  async function savePhoto(src, title) {
+    const ext = /^data:image\/png/.test(src) ? 'png' : 'jpg';
+    const name = `${title}.${ext}`.replace(/[\\/:*?"<>|]/g, '_');
+    if (IS_DESKTOP) {
+      const p = await (await desktopApi()).export_image(src, name);
+      if (p) toast('已存到 ' + p);
+      return;
+    }
+    const blob = await (await fetch(src)).blob(), file = new File([blob], name, { type: blob.type });
+    const canShare = (() => { try { return IS_MOBILE && !!navigator.canShare && navigator.canShare({ files: [file] }); } catch (e) { return false; } })();
+    if (canShare) {
+      try { await navigator.share({ files: [file], title: name }); return; } catch (e) { if (e.name === 'AbortError') return; }
+    }
+    const url = URL.createObjectURL(file), a = document.createElement('a');
+    a.href = url; a.download = name; document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 60000);
+  }
   window.addEventListener('keydown', e => {
     if (e.key === 'Escape' && zoomBox.classList.contains('show')) { e.preventDefault(); e.stopPropagation(); zoomClose(); } // 只關照片，不關後面的編輯視窗
   }, true);
