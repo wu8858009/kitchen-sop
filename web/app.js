@@ -2,7 +2,7 @@
 (() => {
   'use strict';
   const U = window.KUnits;
-  const APP_VERSION = '2.8.3';
+  const APP_VERSION = '2.8.4';
   const IS_DESKTOP = /[?&]desktop=1\b/.test(location.search);
 
   const $ = (s, el = document) => el.querySelector(s);
@@ -996,7 +996,7 @@
   const LABEL_DOTS = 8;                       // 203 dpi ≒ 每公釐 8 點
   const LABEL_MAX_W = 72;                     // B3S 列印頭 576 點 = 72 公釐
   const LABEL_SITE = 'https://wu8858009.github.io/kitchen-sop/';
-  const NIIM_LIB = 'vendor/niimbluelib.min.js?v=43';
+  const NIIM_LIB = 'vendor/niimbluelib.min.js?v=44';
   const labelForm = { name: '', qty: '', note: '', made: null, exp: '' };   // made：null = 今天，'' = 不印
   let niim = null;                            // 已連線的印表機
   let labelQ = '';                            // 已儲存標籤的搜尋字
@@ -1565,7 +1565,7 @@
         ${!paired && viOn() && vis.length ? `<ul class="cc-list vi" lang="vi">${vis.map(l => `<li>${esc(l)}</li>`).join('')}</ul>` : ''}` : `<p class="muted">${bt('（尚未填寫內容）')}</p>`}</article>`;
     }
     const r = getRecipe(it.recipeId), mult = it.mult, mode = db.settings.unitMode;
-    let body = r.photo && c.photo !== 'none' ? `<img class="cc-photo ${c.photo === 'l' ? 'big' : ''}" src="${r.photo}" alt="">` : '';
+    let body = '';
     if (c.ing && r.ingredients.length) {
       let last = null, rows = '';
       for (const i of r.ingredients) {
@@ -1585,6 +1585,8 @@
     if (c.shelf && r.shelf.trim()) body += `<div class="cc-shelf">${bv(`保存期限：${r.shelf.trim()}`, r.shelfVi.trim() ? `Hạn bảo quản: ${r.shelfVi.trim()}` : '')}</div>`;
     if (c.notes && r.notes.trim()) body += `<div class="cc-notes">${bvML(r.notes.trim(), r.notesVi)}</div>`;
     if (c.cost) { const k = recipeCost(r, mult, priceMap()); body += `<div class="cc-cost">${bt(`成本 ${money(k.total)}　每${r.yieldUnit} ${money(k.perUnit)}${k.missing ? '（部分未計）' : ''}`)}</div>`; }
+    // 照片放在右側，和內容並排，印出來一眼就認得是哪道菜
+    if (r.photo && c.photo !== 'none') body = `<div class="cc-body ${c.photo === 'l' ? 'big' : ''}"><div class="cc-main">${body}</div><img class="cc-photo" src="${r.photo}" alt=""></div>`;
     return `<article class="cheat-card"><header><h3>${bv(r.name, r.nameVi)}</h3>
       <span class="cc-scale">${bt(`${mult === 1 ? '' : `× ${multText(mult)}　`}${fmt(r.yieldQty * mult)} ${r.yieldUnit}`)}</span></header>${body || `<p class="muted">${bt('（沒有勾選要顯示的內容）')}</p>`}</article>`;
   }
