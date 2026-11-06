@@ -51,7 +51,7 @@ function doPost(e) {
     switch (req.a) {
       case "ping": return out_({ ok: true, app: APP, rev: rev_(ss), recipes: Math.max(0, sheet_(ss, "recipes").getLastRow() - 1),
         sops: Math.max(0, sheet_(ss, "sops").getLastRow() - 1), inv: Math.max(0, sheet_(ss, "inv").getLastRow() - 2), claimed: claimed });
-      case "rev": return out_({ ok: true, rev: rev_(ss) });
+      case "rev": return out_({ ok: true, rev: rev_(ss), badPhotos: badPhotos_(ss) });
       case "load": return out_(load_(ss));
       case "save": return out_(save_(ss, req));
       case "translate": return out_(translate_(req));
@@ -159,6 +159,38 @@ function sysSet_(ss, o) {
   writeRows_(ss, "sys", Object.keys(o).map((k) => [k, typeof o[k] === "string" ? o[k] : JSON.stringify(o[k])]));
 }
 const rev_ = (ss) => Number(sysGet_(ss).rev) || 0;
+
+// 照片：舊版用 appendRow 寫入，以「+」開頭的片段會被當成公式變成 #ERROR!，要分出壞掉的
+const okPhoto_ = (s) => /^data:image\/[\w+.-]+;base64,[A-Za-z0-9+\/]*={0,2}$/.test(s);
+// 和 App 的 hashStr 相同，用來認出 App 讀到的壞照片原本是哪一張
+function hash_(str) {
+  let h1 = 0xdeadbeef, h2 = 0x41c6ce57;
+  for (let i = 0; i < str.length; i++) {
+    const ch = str.charCodeAt(i);
+    h1 = Math.imul(h1 ^ ch, 2654435761); h2 = Math.imul(h2 ^ ch, 1597334677);
+  }
+  h1 = Math.imul(h1 ^ (h1 >>> 16), 2246822507) ^ Math.imul(h2 ^ (h2 >>> 13), 3266489909);
+  h2 = Math.imul(h2 ^ (h2 >>> 16), 2246822507) ^ Math.imul(h1 ^ (h1 >>> 13), 3266489909);
+  return (h2 >>> 0).toString(16).padStart(8, "0") + (h1 >>> 0).toString(16).padStart(8, "0");
+}
+function photoInfo_(ss) {
+  const good = {}, bad = {}, alias = {}, rowOf = {};
+  rows_(ss, "photos").forEach((r, i) => {
+    if (r[0] === "") return;
+    const h = str_(r[0]), data = r.slice(2, 2 + (Number(r[1]) || 0)).join("");
+    rowOf[h] = i + 2;
+    if (okPhoto_(data)) good[h] = data;
+    else { bad[h] = data; alias[hash_(data)] = h; }
+  });
+  return { good: good, bad: bad, alias: alias, rowOf: rowOf };
+}
+// 壞掉的照片清單放快取，查版本時不用每次讀整張照片表
+function badPhotos_(ss, list) {
+  const c = CacheService.getScriptCache();
+  if (list) { c.put("badPhotos", JSON.stringify(list), 21600); return list; }
+  const v = c.get("badPhotos");
+  return v ? JSON.parse(v) : badPhotos_(ss, Object.keys(photoInfo_(ss).bad));
+}
 function json_(s, dflt) { try { return s ? JSON.parse(s) : dflt; } catch (e) { return dflt; } }
 
 // ---------------------------------------------------------------- 讀取
@@ -184,8 +216,10 @@ function load_(ss) {
 
   const prices = rows_(ss, "prices").filter((r) => r[1] !== "").map((r) => ({ id: str_(r[0]), name: str_(r[1]), price: num_(r[2]), perQty: num_(r[3]) || 1, perUnit: str_(r[4]) }));
 
-  const photos = {};
-  rows_(ss, "photos").forEach((r) => { if (r[0] !== "") photos[str_(r[0])] = r.slice(2, 2 + (Number(r[1]) || 0)).join(""); });
+  // 壞照片照樣回傳，App 會把它藏起來，有好照片的裝置會重新上傳
+  const info = photoInfo_(ss);
+  const photos = Object.assign({}, info.good, info.bad);
+  badPhotos_(ss, Object.keys(info.bad));
   recipes.forEach((r) => { r.photo = photos[r.photoHash] || ""; delete r.photoHash; });
 
   const sops = rows_(ss, "sops").filter((r) => r[0] !== "").map((r) => {
@@ -211,7 +245,7 @@ function load_(ss) {
   });
 
   return {
-    ok: true, rev: Number(sys.rev) || 0, photoHashes: Object.keys(photos),
+    ok: true, rev: Number(sys.rev) || 0, photoHashes: Object.keys(info.good),
     db: {
       version: 1, recipes: recipes, prices: prices, sops: sops, inv: inv,
       plan: json_(sys.plan, []), settings: json_(sys.settings, {}), deleted: json_(sys.deleted, {}),
@@ -239,16 +273,21 @@ function save_(ss, req) {
 
     // 照片：只上傳新的，以 hash 對應
     const phSheet = sheet_(ss, "photos");
-    const phRows = rows_(ss, "photos");
-    const have = {};
-    phRows.forEach((r, i) => { if (r[0] !== "") have[str_(r[0])] = i + 2; });
+    const info = photoInfo_(ss), have = info.good, bad = info.bad;
     const used = {};
     const need = [];
     if (!hasSops) rows_(ss, "sops").forEach((r) => { if (r[0] !== "" && r[7] !== "") used[str_(r[7])] = true; });
     recipes.concat(sops).forEach((r) => {
-      if (!r.photoHash) return;
-      used[r.photoHash] = true;
-      if (!have[r.photoHash] && !incoming[r.photoHash] && need.indexOf(r.photoHash) < 0) need.push(r.photoHash);
+      let h = r.photoHash;
+      if (!h) return;
+      const rejected = incoming[h] != null && !okPhoto_(String(incoming[h]));
+      if (rejected) delete incoming[h]; // 壞掉的照片不收
+      if (!have[h] && !bad[h] && info.alias[h]) h = r.photoHash = info.alias[h]; // App 讀到的壞照片：對回原本那張
+      if (!have[h] && !bad[h] && !incoming[h]) {
+        if (rejected) { r.photoHash = ""; return; }
+        if (need.indexOf(h) < 0) need.push(h);
+      }
+      used[h] = true;
     });
     if (need.length) return { ok: false, needPhotos: need, rev: rev };
 
@@ -287,17 +326,24 @@ function save_(ss, req) {
       writeRows_(ss, "inv", invRows);
     }
 
+    const drop = [];
     Object.keys(incoming).forEach((h) => {
       if (!used[h] || have[h]) return;
+      if (bad[h]) { drop.push(info.rowOf[h]); delete bad[h]; } // 有裝置補上好的照片，換掉壞的
       const data = String(incoming[h]);
       const parts = [];
       for (let i = 0; i < data.length; i += CHUNK) parts.push(data.slice(i, i + CHUNK));
-      phSheet.appendRow([h, parts.length].concat(parts));
-      have[h] = -1;
+      // 先設成純文字再寫入，片段開頭是「+」或「=」才不會被當成公式
+      const row = phSheet.getLastRow() + 1, width = parts.length + 2;
+      if (row > phSheet.getMaxRows()) phSheet.insertRowsAfter(phSheet.getMaxRows(), 1);
+      if (width > phSheet.getMaxColumns()) phSheet.insertColumnsAfter(phSheet.getMaxColumns(), width - phSheet.getMaxColumns());
+      phSheet.getRange(row, 1, 1, width).setNumberFormat("@").setValues([[h, String(parts.length)].concat(parts)]);
+      have[h] = data;
     });
     // 刪除沒有食譜在用的照片（由下往上刪才不會錯位）
-    const stale = phRows.map((r, i) => (r[0] !== "" && !used[str_(r[0])] ? i + 2 : 0)).filter(Boolean).reverse();
-    stale.forEach((row) => phSheet.deleteRow(row));
+    Object.keys(info.rowOf).forEach((h) => { if (!used[h]) drop.push(info.rowOf[h]); });
+    drop.sort((a, b) => b - a).forEach((row) => phSheet.deleteRow(row));
+    badPhotos_(ss, Object.keys(bad).filter((h) => used[h]));
 
     // 墓碑只保留 90 天
     const deleted = d.deleted && typeof d.deleted === "object" ? d.deleted : {};
@@ -310,7 +356,7 @@ function save_(ss, req) {
       plan: d.plan || [], settings: d.settings || {}, deleted: deleted,
       pricesUpdatedAt: String(Number(d.pricesUpdatedAt) || 0),
     });
-    return { ok: true, rev: next, photoHashes: Object.keys(used) };
+    return { ok: true, rev: next, photoHashes: Object.keys(used).filter((h) => !bad[h]) };
   } finally {
     lock.releaseLock();
   }
