@@ -280,6 +280,19 @@ input.big { font-size: 1.3rem; }
 .plan-item .small { white-space: nowrap; }
 .plan-add { display: flex; gap: 8px; }
 .plan-add select { flex: 1; }
+.sched-days .chip .n { display: inline-block; min-width: 1.4em; padding: 0 5px; margin-left: 2px; border-radius: 99px; background: var(--line); color: var(--fg); font-size: .8em; text-align: center; }
+.sched-days .chip.on .n { background: rgba(255, 255, 255, .3); color: inherit; }
+.sched-items { display: flex; flex-direction: column; margin-bottom: 12px; }
+.sched-item { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; padding: 8px 0; border-bottom: 1px solid var(--line); }
+.sched-item input[type=checkbox] { width: 22px; height: 22px; flex: none; }
+.sched-item .tm { width: 132px; }
+.sched-item > label, .sched-item > .small, .sched-item > .note { order: 2; }
+.sched-item > .icon { order: 3; }
+.sched-item .pname { flex: 1 1 100px; min-width: 0; font-weight: 700; color: var(--fg); text-decoration: none; }
+.sched-item .mult { width: 64px; font-weight: 700; }
+.sched-item .small { white-space: nowrap; }
+.sched-item .note { flex: 1 1 90px; min-width: 0; }
+.sched-item.done .pname, .sched-item.done .note { text-decoration: line-through; opacity: .55; }
 
 /* 小抄 */
 .cheat-items { display: flex; flex-direction: column; gap: 6px; margin-bottom: 12px; }
