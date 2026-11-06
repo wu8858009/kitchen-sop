@@ -2,7 +2,7 @@
 (() => {
   'use strict';
   const U = window.KUnits;
-  const APP_VERSION = '2.8.6';
+  const APP_VERSION = '2.9.0';
   const IS_DESKTOP = /[?&]desktop=1\b/.test(location.search);
 
   const $ = (s, el = document) => el.querySelector(s);
@@ -411,6 +411,7 @@
       case 'r': app.innerHTML = viewRecipe(route.id); updateRecipeComputed(); break;
       case 'edit': case 'new': app.innerHTML = viewEdit(route.name === 'new' ? null : route.id); break;
       case 'plan': app.innerHTML = viewPlan(); updatePlanTotal(); break;
+      case 'sched': app.innerHTML = viewSched(); break;
       case 'cheat': app.innerHTML = viewCheat(); updateCheat(); break;
       case 'sops': app.innerHTML = viewSops(); updateSopList(); break;
       case 'sop': app.innerHTML = viewSop(route.id); updateSopCalc(); break;
@@ -931,6 +932,69 @@
     location.hash = '#/r/' + encodeURIComponent(rec.id);
   }
 
+  // ---------------------------------------------------------------- 備料行程
+  // 每週固定的備料行程（週一到週日各一份），存在 settings.schedule，跟著設定一起同步
+  // 項目：{ id, time, recipeId（空白＝自訂文字）, text, mult, note }；done 依日期記錄已完成的項目
+  const WEEK = ['日', '一', '二', '三', '四', '五', '六'];
+  const WEEK_ORDER = [1, 2, 3, 4, 5, 6, 0];
+  let schedDay = null; // 正在看的星期（0＝週日）；null＝今天
+  function schedCfg() {
+    let s = db.settings.schedule;
+    if (!s || typeof s !== 'object') s = db.settings.schedule = {};
+    if (!s.days || typeof s.days !== 'object') s.days = {};
+    for (let i = 0; i < 7; i++) if (!Array.isArray(s.days[i])) s.days[i] = [];
+    if (!s.done || typeof s.done !== 'object') s.done = {};
+    return s;
+  }
+  const schedShown = () => (schedDay == null ? new Date().getDay() : schedDay);
+  // 這週（週一開始）裡那一天的日期
+  function schedDate(day) {
+    const d = new Date(), today = d.getDay();
+    d.setDate(d.getDate() + ((day + 6) % 7) - ((today + 6) % 7));
+    return d;
+  }
+  const schedItems = day => schedCfg().days[day].filter(x => !x.recipeId || getRecipe(x.recipeId));
+  function viewSched() {
+    const s = schedCfg(), day = schedShown(), date = schedDate(day), key = ymd(date), today = new Date().getDay();
+    s.days[day] = schedItems(day).sort((a, b) => (a.time || '99').localeCompare(b.time || '99'));
+    const list = s.days[day], done = new Set(s.done[key] || []);
+    const avail = [...db.recipes].sort((a, b) => a.name.localeCompare(b.name, 'zh-Hant'));
+    const left = list.filter(x => !done.has(x.id)).length;
+    return `<div class="page">
+      <div class="page-head"><h1 class="head-title">備料行程</h1><div class="spacer"></div>
+        ${list.some(x => x.recipeId) ? '<button class="btn" data-act="sched-to-plan">🧾 帶入備料單</button>' : ''}
+        ${list.length ? '<button class="btn" data-act="print">🖨 列印</button>' : ''}</div>
+      <p class="muted no-print">設定每週固定要備的菜和時間，每天打開就知道今天要做什麼。勾選做好的項目，下週同一天會重新開始。</p>
+      <div class="chips sched-days no-print">${WEEK_ORDER.map(i => `<button class="chip ${i === day ? 'on' : ''}" data-act="sched-day" data-v="${i}">${i === today ? '今天 ' : ''}週${WEEK[i]}${s.days[i].length ? ` <span class="n">${s.days[i].length}</span>` : ''}</button>`).join('')}</div>
+      <section class="card">
+        <div class="sec-head"><h2>${date.getMonth() + 1}/${date.getDate()}（${WEEK[day]}）${day === today ? '今天' : ''}的備料</h2><div class="spacer"></div>
+          ${list.length ? `<span class="muted small">${left ? `還有 ${left} 項` : '全部完成 ✅'}</span>` : ''}</div>
+        <div class="sched-items">${list.map((x, k) => { const r = x.recipeId && getRecipe(x.recipeId); return `<div class="sched-item ${done.has(x.id) ? 'done' : ''}">
+          <input type="checkbox" data-act="sched-check" data-id="${esc(x.id)}" aria-label="已完成" ${done.has(x.id) ? 'checked' : ''}>
+          <input type="time" class="tm" data-sch="${k}" data-f="time" value="${esc(x.time || '')}" aria-label="時間">
+          ${r ? `<a class="pname" href="#/r/${encodeURIComponent(r.id)}">${esc(r.name)}</a>
+          <label class="inline">×<input type="text" class="mult" autocomplete="off" placeholder="2 或 /3" data-sch="${k}" data-f="mult" value="${multText(x.mult || 1)}"></label>
+          <span class="muted small" id="sy${k}">${fmt(r.yieldQty * (x.mult || 1))} ${esc(r.yieldUnit)}</span>`
+          : `<input type="text" class="pname" data-sch="${k}" data-f="text" value="${esc(x.text || '')}" placeholder="要做的事，例如：解凍雞腿">`}
+          <input type="text" class="note" data-sch="${k}" data-f="note" value="${esc(x.note || '')}" placeholder="備註">
+          <button class="icon danger no-print" data-act="sched-rm" data-k="${k}" title="移除">✕</button></div>`; }).join('') || `<p class="muted">週${WEEK[day]}還沒有安排。</p>`}</div>
+        <div class="plan-add no-print"><select id="schedAdd">${avail.map(r => `<option value="${esc(r.id)}">${esc(r.name)}</option>`).join('')}<option value="">（自訂項目）</option></select>
+          <button class="btn primary" data-act="sched-add">＋ 加入</button>
+          ${list.length ? `<select data-act-change="sched-copy" aria-label="複製到其他天"><option value="">複製到…</option><option value="all">每天</option>${WEEK_ORDER.filter(i => i !== day).map(i => `<option value="${i}">週${WEEK[i]}</option>`).join('')}</select>` : ''}</div>
+      </section>
+    </div>`;
+  }
+  function schedCheck(id, on) {
+    const s = schedCfg(), key = ymd(schedDate(schedShown()));
+    const set = new Set(s.done[key] || []);
+    on ? set.add(id) : set.delete(id);
+    s.done[key] = [...set];
+    // 只留最近兩週的完成紀錄
+    const cut = ymd(new Date(Date.now() - 14 * 864e5));
+    Object.keys(s.done).forEach(k => { if (k < cut || !s.done[k].length) delete s.done[k]; });
+    persist();
+  }
+
   // ---------------------------------------------------------------- 備料單
   function viewPlan() {
     db.plan = db.plan.filter(p => getRecipe(p.recipeId));
@@ -996,7 +1060,7 @@
   const LABEL_DOTS = 8;                       // 203 dpi ≒ 每公釐 8 點
   const LABEL_MAX_W = 72;                     // B3S 列印頭 576 點 = 72 公釐
   const LABEL_SITE = 'https://wu8858009.github.io/kitchen-sop/';
-  const NIIM_LIB = 'vendor/niimbluelib.min.js?v=46';
+  const NIIM_LIB = 'vendor/niimbluelib.min.js?v=47';
   const labelForm = { name: '', qty: '', note: '', made: null, exp: '' };   // made：null = 今天，'' = 不印
   let niim = null;                            // 已連線的印表機
   let labelQ = '';                            // 已儲存標籤的搜尋字
@@ -2616,6 +2680,7 @@
       case 'sops': case 'sop': return clickEl('#app [data-act="sop-new"]') || (go('#/sops'), setTimeout(() => clickAct('sop-new'), 50), true);
       case 'prices': return clickAct('price-add');
       case 'plan': { const s2 = $('#planAdd'); if (s2) { s2.focus(); return true; } return false; }
+      case 'sched': { const s2 = $('#schedAdd'); if (s2) { s2.focus(); return true; } return false; }
       case 'cheat': return clickAct('cheat-edit');
       case 'edit': case 'new': return clickAct('add');
       default: return go('#/new');
@@ -2631,6 +2696,7 @@
     ['Alt+5', '切到「標籤」', '', () => go('#/labels')],
     ['Alt+6', '切到「盤點訂貨」', '', () => go('#/inv')],
     ['Alt+7', '切到「設定」', '', () => go('#/settings')],
+    ['Alt+8', '切到「備料行程」', '', () => go('#/sched')],
     ['Ctrl+F', '搜尋（食譜／SOP／單價表）', '', focusSearch],
     ['/', '搜尋（不在輸入框時）', '', focusSearch],
     ['Alt+N', '新增（依頁面：食譜、SOP、單價、備料單菜色、小抄卡片、編輯中的食材）', '', newItem],
@@ -2668,7 +2734,7 @@
     ['Alt+I', '從食譜帶入食材', 'prices', () => clickAct('price-import')],
     ['Alt+X', '匯出備份', 'settings', () => clickAct('export')],
   ];
-  const PAGE_NAMES = { '': '全部頁面', r: '食譜頁', edit: '編輯食譜', sop: 'SOP 表單', sops: 'SOP 列表', plan: '備料單', cheat: '小抄', prices: '單價表', labels: '標籤', inv: '盤點訂貨', settings: '設定' };
+  const PAGE_NAMES = { '': '全部頁面', r: '食譜頁', edit: '編輯食譜', sop: 'SOP 表單', sops: 'SOP 列表', plan: '備料單', sched: '備料行程', cheat: '小抄', prices: '單價表', labels: '標籤', inv: '盤點訂貨', settings: '設定' };
 
   function keyName(e) {
     const k = e.key === ' ' ? 'Space' : e.key.length === 1 ? e.key.toUpperCase() : e.key;
@@ -3306,10 +3372,11 @@
   // ---------------------------------------------------------------- 滑鼠停留說明
   // 依按鈕的 data-act 查表，新頁面重畫也不用另外綁；手機沒有滑鼠就不顯示
   const TAB_TIPS = {
-    list: '所有食譜，可搜尋、分類，點進去換算份量', sops: '依紙本表單格式管理 SOP，計算採購量、成本與毛利', plan: '把多道菜加在一起，彙總要準備的食材與成本',
+    list: '所有食譜，可搜尋、分類，點進去換算份量', sops: '依紙本表單格式管理 SOP，計算採購量、成本與毛利', plan: '把多道菜加在一起，彙總要準備的食材與成本', sched: '每天要備哪些菜、幾點做，打開就看到今天的',
     cheat: '把食譜濃縮成卡片，列印後貼在工作台', labels: '製作食材標籤，可印到精臣 B3S 或 A4 紙', inv: '每週盤點與訂貨表，可列印或複製訂貨單', settings: '單價表、雲端同步、備份與提示音',
   };
   const ACT_TIPS = {
+    'sched-day': '查看這一天的備料行程', 'sched-add': '把選單中的菜加到這一天', 'sched-rm': '從這一天移除', 'sched-check': '勾選表示這項做好了', 'sched-to-plan': '把這一天的菜依倍數放進備料單，算出合計食材',
     add: '新增一列', 'add-head': '新增小標題，把食材分段', addplan: '把這道菜依目前倍數加到備料單', anchor: '輸入手邊現有的量，自動反推倍數', bulk: '一次貼上多行文字，每行變成一列',
     'cancel-edit': '放棄這次修改，回到上一頁', cat: '只顯示這個分類的食譜', 'cheat-show': '讓這張卡片重新出現在小抄', 'cheat-clear': '隱藏所有食譜卡片、刪除文字卡，食譜不會被刪除', 'cheat-close': '關閉這個視窗', 'cheat-edit': '隱藏或顯示卡片，調整順序、倍數和步驟',
     'cheat-from-plan': '把備料單的菜色全部做成小抄卡片', 'cheat-from-recipe': '把小抄這張卡片改成目前倍數', 'cheat-mv': '調整文字卡的位置', 'cheat-note': '新增一張自己打字的卡片', 'cheat-print': '列印目前的小抄卡片', 'cheat-rm': '隱藏這張卡片，食譜不會被刪除',
@@ -3395,6 +3462,26 @@
       case 'mult': setMult(+el.dataset.v); { const mi = $('#mult'); if (mi) mi.value = multText(vs(route.id).mult); } break;
       case 'check': { const s = vs(route.id).checked; el.checked ? s.add(el.dataset.i) : s.delete(el.dataset.i); el.closest('tr').classList.toggle('done', el.checked); break; }
       case 'plan-check': el.closest('tr').classList.toggle('done', el.checked); break;
+      case 'sched-day': schedDay = +el.dataset.v === new Date().getDay() ? null : +el.dataset.v; render(); break;
+      case 'sched-check': schedCheck(el.dataset.id, el.checked); render(); break;
+      case 'sched-rm': schedCfg().days[schedShown()].splice(+el.dataset.k, 1); persist(); render(); break;
+      case 'sched-add': {
+        const id = $('#schedAdd').value, list = schedCfg().days[schedShown()];
+        const last = list[list.length - 1];
+        list.push({ id: uid(), time: last ? last.time || '' : '', recipeId: id, text: '', mult: 1, note: '' });
+        persist(); render();
+        if (!id) { const ins = $$('.sched-item input.pname'); ins[ins.length - 1].focus(); }
+        break;
+      }
+      case 'sched-to-plan': {
+        const items = schedItems(schedShown()).filter(x => x.recipeId);
+        for (const x of items) {
+          const p = db.plan.find(q => q.recipeId === x.recipeId);
+          if (p) p.mult = x.mult || 1; else db.plan.push({ recipeId: x.recipeId, mult: x.mult || 1 });
+        }
+        persist(); toast(`已帶入 ${items.length} 道菜`); location.hash = '#/plan';
+        break;
+      }
       case 'uncheck': vs(route.id).checked.clear(); updateRecipeComputed(); break;
       case 'anchor': anchorIngredient(el.dataset.i); break;
       case 'stepdone': {
@@ -3625,7 +3712,7 @@
     if (t.lang === 'vi' || t.dataset.ime === 'none') return '';
     if (t.dataset.ime === 'en') return 'en';                  // 越南文欄位：不干涉
     if (/^(number|url|password)$/.test(type) || /^(decimal|numeric)$/.test(t.inputMode)) return 'en';
-    if (t.id === 'mult' || t.id === 'target' || t.id === 'cloudUrl' || t.dataset.cheatMult != null || t.dataset.plan != null || t.dataset.inv != null) return 'en'; // 品號、數量
+    if (t.id === 'mult' || t.id === 'target' || t.id === 'cloudUrl' || t.dataset.cheatMult != null || t.dataset.plan != null || t.dataset.inv != null || t.dataset.f === 'mult') return 'en'; // 品號、數量
     if (/\.unit$/.test(t.dataset.bind || '') || /\.perUnit$/.test(t.dataset.price || '') || t.id === 'anchorVal') return ''; // 單位、量：中英都有
     return 'zh';
   }
@@ -3703,6 +3790,17 @@
       if (it) { it[t.dataset.f] = t.value; it[t.dataset.f + 'Vi'] = ''; persist(); updateCheat(); }
       return;
     }
+    if (t.dataset.sch != null) {
+      const k = +t.dataset.sch, x = schedCfg().days[schedShown()][k], f = t.dataset.f;
+      if (!x) return;
+      if (f === 'mult') {
+        const m = parseMult(t.value), r = getRecipe(x.recipeId);
+        if (!(m > 0) || !r) return;
+        x.mult = m; $('#sy' + k).textContent = `${fmt(r.yieldQty * m)} ${r.yieldUnit}`;
+      } else x[f] = t.value;
+      persist();
+      return;
+    }
     if (t.dataset.plan != null) {
       const k = +t.dataset.plan, m = parseMult(t.value), p = db.plan[k];
       if (p && m > 0) { p.mult = m; persist(); const r = getRecipe(p.recipeId); $('#py' + k).textContent = `${fmt(r.yieldQty * m)} ${r.yieldUnit}`; updatePlanTotal(); }
@@ -3757,6 +3855,16 @@
       return;
     }
     if (!act) return;
+    if (act === 'sched-copy') {
+      const v = t.value, s = schedCfg(), day = schedShown();
+      t.value = '';
+      if (!v) return;
+      const to = v === 'all' ? WEEK_ORDER.filter(i => i !== day) : [+v];
+      to.forEach(i => s.days[i].push(...schedItems(day).map(x => ({ ...x, id: uid() }))));
+      persist(); render();
+      toast(`已複製到${v === 'all' ? '每天' : '週' + WEEK[+v]}`);
+      return;
+    }
     if (act === 'unitmode') {
       db.settings.unitMode = t.value; persist();
       $$('[data-act-change="unitmode"]').forEach(s => { s.value = t.value; });
