@@ -69,19 +69,21 @@ class Api:
         return str(path)
 
     def export_image(self, data_url, filename):
-        """把標籤存成 PNG"""
+        """把標籤或照片存成圖片檔（PNG 或 JPG，依 data URL 而定）"""
+        jpg = data_url.startswith("data:image/jpeg")
+        ext, types = (".jpg", ("JPG 圖片 (*.jpg;*.jpeg)",)) if jpg else (".png", ("PNG 圖片 (*.png)",))
         docs = Path.home() / "Documents"
         res = _window.create_file_dialog(
             webview.FileDialog.SAVE,
             directory=str(docs if docs.exists() else Path.home()),
             save_filename=filename,
-            file_types=("PNG 圖片 (*.png)",),
+            file_types=types,
         )
         if not res:
             return ""
         path = Path(res[0] if isinstance(res, (list, tuple)) else res)
-        if path.suffix.lower() != ".png":
-            path = path.with_suffix(".png")
+        if path.suffix.lower() not in ((".jpg", ".jpeg") if jpg else (".png",)):
+            path = path.with_suffix(ext)
         path.write_bytes(base64.b64decode(data_url.split(",", 1)[1]))
         return str(path)
 
