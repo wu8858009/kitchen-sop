@@ -159,6 +159,8 @@ input.big { font-size: 1.3rem; }
   color: var(--fg); font: inherit; font-weight: 600; cursor: pointer;
 }
 .chip.on { background: var(--accent); border-color: var(--accent); color: var(--accent-fg); }
+.chip.hid:not(.on) { opacity: .5; border-style: dashed; }
+.hide-cats { display: flex; flex-wrap: wrap; gap: 6px 18px; }
 .badge { display: inline-block; padding: 1px 8px; border-radius: 999px; font-size: .78rem; background: var(--line); color: var(--muted); font-weight: 600; }
 .badge.red { background: var(--red-soft); color: var(--red); }
 

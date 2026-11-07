@@ -2,7 +2,7 @@
 (() => {
   'use strict';
   const U = window.KUnits;
-  const APP_VERSION = '2.9.0';
+  const APP_VERSION = '2.9.1';
   const IS_DESKTOP = /[?&]desktop=1\b/.test(location.search);
 
   const $ = (s, el = document) => el.querySelector(s);
@@ -208,6 +208,9 @@
 
   const getRecipe = id => db.recipes.find(r => r.id === id);
   const categories = () => [...new Set(db.recipes.map(r => r.category.trim()).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'zh-Hant'));
+  // 設定裡勾選隱藏的分類：「全部」、小抄、備料單和行程的選單都不出現，點那個分類才看得到
+  const hiddenCats = () => new Set(Array.isArray(db.settings.hiddenCats) ? db.settings.hiddenCats : []);
+  const shownRecipes = () => { const h = hiddenCats(); return db.recipes.filter(r => !h.has(r.category.trim())); };
 
   function sampleData() {
     const I = (name, qty, unit, note = '', group = '') => ({ name, qty, unit, note, group });
@@ -430,7 +433,7 @@
   let listFilter = { q: '', cat: '' };
   const byListOrder = (a, b) => a.category.localeCompare(b.category, 'zh-Hant') || a.name.localeCompare(b.name, 'zh-Hant');
   function viewList() {
-    const cats = categories();
+    const cats = categories(), hidden = hiddenCats();
     if (listFilter.cat && !cats.includes(listFilter.cat)) listFilter.cat = '';
     return `<div class="page">
       ${loadFailed ? '<div class="banner err">讀取資料檔失敗，為避免覆蓋原本資料，目前不會儲存任何變更。請關閉程式並檢查資料檔。</div>' : ''}
@@ -440,7 +443,7 @@
       </div>
       <div class="chips" id="cats">
         <button class="chip ${listFilter.cat ? '' : 'on'}" data-act="cat" data-v="">全部</button>
-        ${cats.map(c => `<button class="chip ${listFilter.cat === c ? 'on' : ''}" data-act="cat" data-v="${esc(c)}">${esc(c)}</button>`).join('')}
+        ${cats.map(c => `<button class="chip ${listFilter.cat === c ? 'on' : ''} ${hidden.has(c) ? 'hid' : ''}" data-act="cat" data-v="${esc(c)}" ${hidden.has(c) ? 'title="已隱藏的分類（可在設定裡改）"' : ''}>${esc(c)}</button>`).join('')}
       </div>
       <div class="grid" id="list"></div>
     </div>`;
@@ -448,13 +451,13 @@
   function updateList() {
     const q = normName(listFilter.q);
     const pm = priceMap();
-    const rs = db.recipes
+    const rs = (listFilter.cat ? db.recipes : shownRecipes())
       .filter(r => !listFilter.cat || r.category.trim() === listFilter.cat)
       .filter(r => !q || [r.name, r.category, r.nameVi, r.categoryVi].some(x => normName(x).includes(q)) || r.ingredients.some(i => normName(i.name).includes(q) || normName(i.nameVi).includes(q)))
       .sort(byListOrder);
     const el = $('#list');
     if (!db.recipes.length) { el.innerHTML = `<div class="empty"><p>還沒有任何食譜。</p><a class="btn primary" href="#/new">＋ 新增第一個食譜</a> <button class="btn" data-act="seed">載入範例食譜</button></div>`; return; }
-    if (!rs.length) { el.innerHTML = '<div class="empty"><p>沒有符合的食譜。</p></div>'; return; }
+    if (!rs.length) { el.innerHTML = `<div class="empty"><p>沒有符合的食譜。</p>${!listFilter.cat && hiddenCats().size ? '<p class="muted small">已隱藏的分類不會出現在「全部」，點上方的分類可以查看。</p>' : ''}</div>`; return; }
     el.innerHTML = rs.map(r => {
       const c = recipeCost(r, 1, pm);
       const mins = r.steps.reduce((t, s) => t + (s.minutes || 0), 0);
@@ -958,7 +961,7 @@
     const s = schedCfg(), day = schedShown(), date = schedDate(day), key = ymd(date), today = new Date().getDay();
     s.days[day] = schedItems(day).sort((a, b) => (a.time || '99').localeCompare(b.time || '99'));
     const list = s.days[day], done = new Set(s.done[key] || []);
-    const avail = [...db.recipes].sort((a, b) => a.name.localeCompare(b.name, 'zh-Hant'));
+    const avail = shownRecipes().sort((a, b) => a.name.localeCompare(b.name, 'zh-Hant'));
     const left = list.filter(x => !done.has(x.id)).length;
     return `<div class="page">
       <div class="page-head"><h1 class="head-title">備料行程</h1><div class="spacer"></div>
@@ -998,7 +1001,7 @@
   // ---------------------------------------------------------------- 備料單
   function viewPlan() {
     db.plan = db.plan.filter(p => getRecipe(p.recipeId));
-    const avail = [...db.recipes].sort((a, b) => a.name.localeCompare(b.name, 'zh-Hant'));
+    const avail = shownRecipes().sort((a, b) => a.name.localeCompare(b.name, 'zh-Hant'));
     return `<div class="page">
       <div class="page-head"><h1 class="head-title">備料單</h1><div class="spacer"></div>
         ${db.plan.length ? '<button class="btn" data-act="cheat-from-plan">📝 做成小抄</button><button class="btn" data-act="print">🖨 列印</button><button class="btn ghost no-print" data-act="plan-clear">清空</button>' : ''}</div>
@@ -1060,7 +1063,7 @@
   const LABEL_DOTS = 8;                       // 203 dpi ≒ 每公釐 8 點
   const LABEL_MAX_W = 72;                     // B3S 列印頭 576 點 = 72 公釐
   const LABEL_SITE = 'https://wu8858009.github.io/kitchen-sop/';
-  const NIIM_LIB = 'vendor/niimbluelib.min.js?v=47';
+  const NIIM_LIB = 'vendor/niimbluelib.min.js?v=48';
   const labelForm = { name: '', qty: '', note: '', made: null, exp: '' };   // made：null = 今天，'' = 不印
   let niim = null;                            // 已連線的印表機
   let labelQ = '';                            // 已儲存標籤的搜尋字
@@ -1437,7 +1440,7 @@
   const cheatCats = c => [...new Set(c.items.filter(x => x.type !== 'note').map(x => cheatCat(getRecipe(x.recipeId))))];
   // 依分類分段：卡片已照分類排好，文字卡歸在它前面那一類；最前面的文字卡沒有分類，每次都會印
   function cheatGroups(c) {
-    const only = cheatCats(c).includes(c.only) ? c.only : '', out = [];
+    const only = cheatCats(c).includes(c.only) ? c.only : '', out = [], hid = hiddenCats();
     let g = null;
     for (const it of c.items) {
       const r = it.type === 'note' ? null : getRecipe(it.recipeId);
@@ -1445,7 +1448,7 @@
       if (!g || g.cat !== cat) out.push(g = { cat, vi: r ? r.categoryVi : '', items: [] });
       if (!it.off) g.items.push(it);
     }
-    return out.filter(x => x.items.length && (!only || !x.cat || x.cat === only));
+    return out.filter(x => x.items.length && (only ? !x.cat || x.cat === only : !hid.has(x.cat)));
   }
   const cheatShown = c => cheatGroups(c).flatMap(g => g.items);
   const cheatCatTitle = g => `<h2 class="cat-title">${bv(g.cat, g.vi)}</h2>`;
@@ -2866,6 +2869,10 @@
         <p class="muted small">食譜和小抄的成本用這裡的單價計算。</p>
         <a class="btn" href="#/prices">💲 開啟單價表（${db.prices.length} 筆）</a></section>
       ${viewRingSettings()}
+      ${categories().length ? `<section class="card"><h2>隱藏分類</h2>
+        <p class="muted small">勾選的分類不會出現在食譜「全部」、小抄、備料單和行程的選單；在食譜列表點那個分類還是看得到，食譜不會被刪除。</p>
+        <div class="hide-cats">${categories().map(c => `<label class="ck-lbl"><input type="checkbox" data-act-change="hide-cat" value="${esc(c)}" ${hiddenCats().has(c) ? 'checked' : ''}> ${esc(c)} <span class="muted small">${db.recipes.filter(r => r.category.trim() === c).length} 道</span></label>`).join('')}</div>
+      </section>` : ''}
       <section class="card">
         <h2>單位顯示</h2>
         <label class="fld">倍數換算後的單位顯示方式${unitModeSelect('unitMode3')}</label>
@@ -3855,6 +3862,14 @@
       return;
     }
     if (!act) return;
+    if (act === 'hide-cat') {
+      const h = hiddenCats();
+      t.checked ? h.add(t.value) : h.delete(t.value);
+      db.settings.hiddenCats = [...h];
+      persist();
+      toast(t.checked ? `已隱藏「${t.value}」` : `已顯示「${t.value}」`);
+      return;
+    }
     if (act === 'sched-copy') {
       const v = t.value, s = schedCfg(), day = schedShown();
       t.value = '';
