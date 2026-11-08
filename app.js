@@ -2,7 +2,7 @@
 (() => {
   'use strict';
   const U = window.KUnits;
-  const APP_VERSION = '2.10.0';
+  const APP_VERSION = '2.10.1';
   const IS_DESKTOP = /[?&]desktop=1\b/.test(location.search);
 
   const $ = (s, el = document) => el.querySelector(s);
@@ -1063,7 +1063,7 @@
   const LABEL_DOTS = 8;                       // 203 dpi ≒ 每公釐 8 點
   const LABEL_MAX_W = 72;                     // B3S 列印頭 576 點 = 72 公釐
   const LABEL_SITE = 'https://wu8858009.github.io/kitchen-sop/';
-  const NIIM_LIB = 'vendor/niimbluelib.min.js?v=49';
+  const NIIM_LIB = 'vendor/niimbluelib.min.js?v=50';
   const labelForm = { name: '', qty: '', note: '', made: null, exp: '' };   // made：null = 今天，'' = 不印
   let niim = null;                            // 已連線的印表機
   let labelQ = '';                            // 已儲存標籤的搜尋字
@@ -1998,14 +1998,20 @@
   // 依紙本「盤點／訂貨」週表：每個品項、每天各一格盤點量與訂貨量。
   // db.inv = { items: [{id,name,unit}], itemsAt, weeks: { 週一日期: { 品項id: { at, a: [一盤,一訂,二盤,二訂…日訂] } } } }
   // 同步時品項清單整份以較新的為準；每週每個品項一列各自以較新的為準（兩台同時填不同品項不會互蓋）
-  // 預估營業額存在每週的 _rev 列（a[天*2]）；品項的 use＝每萬元營業額用量（克），用來算建議叫貨量
+  // 預估營業額存在每週的 _rev 列（a[天*2]）；品項的 wan＝每萬元營業額用量（品項單位，同叫貨系統的「萬元使用量」）
   const INV_DAYS = ['一', '二', '三', '四', '五', '六', '日'];
   const INV_DEFAULT = '紫洋蔥 斤|紅辣椒 斤|粗蒜碎 斤|九層塔 斤|大蒜仁 斤|中薑 斤|牛奶小黃瓜 斤|白蘿蔔 斤|空心菜 斤|南部蔥 公斤|進口洋蔥 斤|杏包菇 斤|鮮香菇 斤|牛蕃茄 斤|青江菜 斤|絲瓜 斤|南瓜-木瓜形 斤|高麗菜 斤|紅蘿蔔 斤|蒜片 斤|豆芽菜 斤|細蒜泥 斤';
+  // v2.10.0 的 use 是每萬元幾克，換成品項單位
+  function invWan(x) {
+    if (x.wan != null) return String(x.wan);
+    const g = num(x.use), q = g > 0 ? U.convert(g, 'g', x.unit) : null;
+    return q == null ? '' : String(+q.toFixed(4));
+  }
   function normInv(v) {
     v = v && typeof v === 'object' ? v : {};
     const has = Array.isArray(v.items);
     // 預設品項用固定 id，各裝置還沒改過清單時填的資料才對得起來
-    const items = has ? v.items.map(x => ({ id: String(x.id || uid()), name: String(x.name || ''), unit: String(x.unit || ''), code: String(x.code || ''), spec: String(x.spec || ''), price: String(x.price == null ? '' : x.price), use: String(x.use == null ? '' : x.use), off: !!x.off, stop: !!x.stop }))
+    const items = has ? v.items.map(x => ({ id: String(x.id || uid()), name: String(x.name || ''), unit: String(x.unit || ''), code: String(x.code || ''), spec: String(x.spec || ''), price: String(x.price == null ? '' : x.price), wan: invWan(x), off: !!x.off, stop: !!x.stop }))
       : INV_DEFAULT.split('|').map((l, i) => { const [name, unit] = l.split(' '); return { id: 'inv' + (i + 1), name, unit, code: '', spec: '', price: '', off: false, stop: false }; });
     const weeks = {};
     if (v.weeks && typeof v.weeks === 'object') for (const [k, w] of Object.entries(v.weeks)) {
@@ -2036,16 +2042,23 @@
   let invDay = (() => { try { const v = localStorage.getItem('ksop.invDay'); if (v != null) return +v; } catch (e) { /* 無法存取 */ } return IS_MOBILE ? -2 : -1; })(); // -1 整週、-2 今天、0~6
   const invDayNow = () => (invDay === -2 ? (invWeek === weekOf(new Date()) ? (new Date().getDay() + 6) % 7 : 0) : invDay);
   const invRow = (wk, id) => ((db.inv.weeks[wk] || {})[id] || { a: [] }).a;
-  // 盤點量換成克：只寫數字就是克，也可以寫「3斤」「1.2kg」
-  const invG = s => { const p = U.parseAmount(s || ''); return !p ? null : p.unit ? U.convert(p.qty, p.unit, 'g') : p.qty; };
-  /** 建議叫貨量（品項單位，取到 0.5）＝（隔天預估營業額 ÷ 1 萬 × 每萬元用量 − 庫存）；資料不夠時回傳 '' */
+  // 盤點量換成品項單位：公斤、斤的品項只寫數字算克；包、盒等直接是幾包；也可以寫「3斤」「1.2kg」
+  const invMass = x => U.convert(1, x.unit, 'g');
+  function invStock(x, s) {
+    const p = U.parseAmount(s || '');
+    if (!p) return null;
+    if (p.unit) return U.convert(p.qty, p.unit, x.unit);
+    return invMass(x) ? p.qty / invMass(x) : p.qty;
+  }
+  /** 建議叫貨量（品項單位）＝ 隔天預估營業額 ÷ 1 萬 × 萬元使用量 − 庫存；公斤、斤取到 0.5，包、盒取整數；資料不夠時回傳 '' */
   function invSug(wk, x, i) {
-    const use = num(x.use), per = U.convert(1, x.unit, 'g'), stock = invG(invRow(wk, x.id)[i * 2]);
-    if (!(use > 0) || !per || stock == null) return '';
+    const wan = num(x.wan), stock = invStock(x, invRow(wk, x.id)[i * 2]);
+    if (!(wan > 0) || stock == null) return '';
     const [nw, ni] = i < 6 ? [wk, i + 1] : [ymd(invDate(wk, 7)), 0];
     const rev = num(invRow(nw, '_rev')[ni * 2]);
     if (!(rev > 0)) return '';
-    return U.fmtNum(Math.max(0, Math.ceil((rev / 10000 * use - stock) / per * 2) / 2));
+    const step = invMass(x) ? 2 : 1;
+    return U.fmtNum(Math.max(0, Math.ceil((rev / 10000 * wan - stock) * step - 1e-9) / step));
   }
   // 訂貨量：自己填的優先，沒填就用建議量（0 不算）
   const invOrd = (wk, x, i) => { const v = (invRow(wk, x.id)[i * 2 + 1] || '').trim(), s = invSug(wk, x, i); return v || (s && s !== '0' ? s : ''); };
@@ -2085,7 +2098,7 @@
         <thead><tr class="rev"><th colspan="3" class="nm">預估營業額（元）</th>${rev}</tr>
         <tr class="days"><th rowspan="2" class="nm">材料名稱</th><th rowspan="2" class="code">品號</th><th rowspan="2" class="u">單位</th>${head}</tr><tr class="sub">${sub}</tr></thead>
         <tbody>${rows}</tbody></table></div>
-        <p class="hint no-print">輸入後自動儲存；按 Enter 跳到下一個品項。盤點填克數（也可寫「3斤」），訂貨格會用<b class="sug-c">橘色</b>顯示建議量：隔天預估營業額 ÷ 1 萬 × 每萬元用量 − 庫存。每萬元用量在「編輯品項」設定；自己輸入訂貨量就以你填的為準。</p>`
+        <p class="hint no-print">輸入後自動儲存；按 Enter 跳到下一個品項。公斤、斤的品項盤點填克數（也可寫「3斤」），包、盒等填幾包。訂貨格會用<b class="sug-c">橘色</b>顯示建議量：隔天預估營業額 ÷ 1 萬 × 萬元使用量 − 庫存。萬元使用量在「編輯品項」填（照品項單位，和叫貨系統報表相同）；自己輸入訂貨量就以你填的為準。</p>`
         : '<div class="empty no-print"><p>還沒有品項。</p><button class="btn primary" data-act="inv-items">＋ 加入品項</button></div>'}
       <div class="print-only" id="invPrint"></div>
     </div>`;
@@ -2140,10 +2153,10 @@
 
   // 品項編輯：仿叫貨系統的表格（# 品號 品名 規格 單位名稱 單價 暫不供貨 已停用）；可從 Excel／叫貨系統複製多列貼上
   const invOn = x => !x.off && !x.stop;
-  const INV_COLS = [['code', '品號', 'w-code'], ['name', '品名', 'w-name'], ['spec', '規格', 'w-spec'], ['unit', '單位名稱', 'w-unit'], ['price', '單價', 'w-price'], ['use', '每萬元用量(克)', 'w-use']];
+  const INV_COLS = [['code', '品號', 'w-code'], ['name', '品名', 'w-name'], ['spec', '規格', 'w-spec'], ['unit', '單位名稱', 'w-unit'], ['price', '單價', 'w-price'], ['wan', '萬元使用量', 'w-use']];
   function invEdRow(x, k) {
     return `<tr data-id="${esc(x.id || '')}"${x.stop ? ' class="stopped" hidden' : ''}><td class="no">${k + 1}</td>
-      ${INV_COLS.map(([f, , c]) => `<td class="${c}"><input data-f="${f}" value="${esc(x[f] || '')}" autocomplete="off"${f === 'price' || f === 'use' ? ' inputmode="decimal"' : ''}${f === 'name' || f === 'unit' ? '' : ' data-ime="en"'}></td>`).join('')}
+      ${INV_COLS.map(([f, , c]) => `<td class="${c}"><input data-f="${f}" value="${esc(x[f] || '')}" autocomplete="off"${f === 'price' || f === 'wan' ? ' inputmode="decimal"' : ''}${f === 'name' || f === 'unit' ? '' : ' data-ime="en"'}></td>`).join('')}
       <td class="w-off"><input type="checkbox" data-f="off" ${x.off ? 'checked' : ''} aria-label="暫不供貨"></td>
       <td class="w-off"><input type="checkbox" data-f="stop" ${x.stop ? 'checked' : ''} aria-label="已停用"></td>
       <td class="w-act"><button class="icon" data-ed="up" title="上移">▲</button><button class="icon" data-ed="down" title="下移">▼</button><button class="icon" data-ed="rm" title="刪除">✕</button></td></tr>`;
@@ -2232,7 +2245,7 @@
       if (seen.has(key)) continue;
       seen.add(key);
       const prevCode = (db.inv.allCodes || {})[key];
-      items.push({ id: r.id || old[key] || uid(), name, code: r.code || (r.id ? '' : prevCode || ''), spec: r.spec, unit: r.unit, price: r.price, use: r.use || '', off: !!r.off, stop: !!r.stop });
+      items.push({ id: r.id || old[key] || uid(), name, code: r.code || (r.id ? '' : prevCode || ''), spec: r.spec, unit: r.unit, price: r.price, wan: r.wan || '', off: !!r.off, stop: !!r.stop });
     }
     db.inv.allCodes = { ...db.inv.allCodes };
     db.inv.items.concat(items).forEach(x => { if (x.code) db.inv.allCodes[normName(x.name)] = x.code; });
