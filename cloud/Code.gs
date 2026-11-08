@@ -233,6 +233,7 @@ function load_(ss) {
     o.photo = photos[str_(r[7])] || "";
     return o;
   });
+  const catPhotos = json_(sys.catPhotos, []).map((x) => ({ cat: x.cat, at: x.at, photo: photos[x.photoHash] || "" }));
 
   // 還沒有盤點訂貨工作表資料時不回傳 inv，App 會保留本機的
   let inv;
@@ -247,7 +248,7 @@ function load_(ss) {
   return {
     ok: true, rev: Number(sys.rev) || 0, photoHashes: Object.keys(info.good),
     db: {
-      version: 1, recipes: recipes, prices: prices, sops: sops, inv: inv,
+      version: 1, recipes: recipes, prices: prices, sops: sops, inv: inv, catPhotos: catPhotos,
       plan: json_(sys.plan, []), settings: json_(sys.settings, {}), deleted: json_(sys.deleted, {}),
       pricesUpdatedAt: Number(sys.pricesUpdatedAt) || 0,
     },
@@ -269,6 +270,9 @@ function save_(ss, req) {
     // 舊版 App 不會送 sops：這時保留試算表裡原本的 SOP（含照片），不要清空
     const hasSops = Array.isArray(d.sops);
     const sops = hasSops ? d.sops : [];
+    // 舊版 App 不會送分類封面：保留原本的
+    const hasCats = Array.isArray(d.catPhotos);
+    const catPhotos = hasCats ? d.catPhotos : json_(sys.catPhotos, []);
     const incoming = req.photos || {};
 
     // 照片：只上傳新的，以 hash 對應
@@ -277,7 +281,7 @@ function save_(ss, req) {
     const used = {};
     const need = [];
     if (!hasSops) rows_(ss, "sops").forEach((r) => { if (r[0] !== "" && r[7] !== "") used[str_(r[7])] = true; });
-    recipes.concat(sops).forEach((r) => {
+    recipes.concat(sops, catPhotos).forEach((r) => {
       let h = r.photoHash;
       if (!h) return;
       const rejected = incoming[h] != null && !okPhoto_(String(incoming[h]));
@@ -354,6 +358,7 @@ function save_(ss, req) {
     sysSet_(ss, {
       rev: String(next), updatedAt: new Date().toISOString(),
       plan: d.plan || [], settings: d.settings || {}, deleted: deleted,
+      catPhotos: catPhotos.map((x) => ({ cat: str_(x.cat), at: Number(x.at) || 0, photoHash: str_(x.photoHash) })),
       pricesUpdatedAt: String(Number(d.pricesUpdatedAt) || 0),
     });
     return { ok: true, rev: next, photoHashes: Object.keys(used).filter((h) => !bad[h]) };

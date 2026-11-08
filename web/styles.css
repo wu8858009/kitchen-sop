@@ -160,6 +160,15 @@ input.big { font-size: 1.3rem; }
 }
 .chip.on { background: var(--accent); border-color: var(--accent); color: var(--accent-fg); }
 .chip.hid:not(.on) { opacity: .5; border-style: dashed; }
+.chip .chip-img { width: 24px; height: 24px; border-radius: 50%; object-fit: cover; vertical-align: middle; margin: -3px 6px 0 -8px; }
+/* 分類封面 */
+.cat-cover { position: relative; display: block; margin-bottom: 14px; border-radius: 14px; overflow: hidden; border: 1px solid var(--line); background: var(--card); }
+.cat-cover img { display: block; width: 100%; height: clamp(150px, 28vw, 300px); object-fit: cover; cursor: zoom-in; }
+.cat-cover .cc-name { position: absolute; left: 0; right: 0; bottom: 0; padding: 30px 16px 12px; font-size: 1.6rem; font-weight: 800; color: #fff; background: linear-gradient(transparent, rgba(0, 0, 0, .7)); pointer-events: none; }
+.cat-cover .cc-btns { position: absolute; top: 10px; right: 10px; display: flex; gap: 6px; }
+.cat-cover .cc-btns .btn { background: rgba(0, 0, 0, .55); color: #fff; border-color: rgba(255, 255, 255, .3); }
+.cat-cover.empty { display: grid; place-items: center; min-height: 64px; border-style: dashed; color: var(--muted); font-weight: 600; cursor: pointer; }
+.cat-cover.empty:hover { border-color: var(--accent); color: var(--accent); }
 .hide-cats { display: flex; flex-wrap: wrap; gap: 6px 18px; }
 .badge { display: inline-block; padding: 1px 8px; border-radius: 999px; font-size: .78rem; background: var(--line); color: var(--muted); font-weight: 600; }
 .badge.red { background: var(--red-soft); color: var(--red); }
