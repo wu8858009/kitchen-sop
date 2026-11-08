@@ -331,13 +331,13 @@ input.big { font-size: 1.3rem; }
 .cc-ing { display: flex; justify-content: space-between; gap: 8px; border-bottom: 1px dotted var(--line); padding: 1px 0; }
 .cc-ing b { white-space: nowrap; }
 /* 小抄的食材照片：放在品名左邊 */
-.cc-ings.has-ph { grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); }
+.cc-ings.has-ph { grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); }
 .cc-ings.has-ph .cc-ing { align-items: center; padding: 3px 0; }
 .cc-ings.has-ph .cc-ing span { flex: 1; min-width: 0; }
-.cc-ing-ph { flex: none; width: 2.6em; height: 2.6em; border-radius: 4px; object-fit: cover; cursor: zoom-in; }
+.cc-ing-ph { flex: none; width: 4.4em; height: 4.4em; border-radius: 4px; object-fit: cover; cursor: zoom-in; }
 i.cc-ing-ph { cursor: default; }
-.cc-ings.ph-l { grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); }
-.cc-ings.ph-l .cc-ing-ph { width: 4em; height: 4em; }
+.cc-ings.ph-l { grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); }
+.cc-ings.ph-l .cc-ing-ph { width: 6.5em; height: 6.5em; }
 .cc-grp { grid-column: 1 / -1; font-size: .85em; font-weight: 700; color: var(--muted); margin-top: 4px; }
 .cc-steps { margin: 8px 0 0; padding-left: 1.6em; }
 .cc-steps li { margin: 2px 0; }
