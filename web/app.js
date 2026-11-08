@@ -2,7 +2,7 @@
 (() => {
   'use strict';
   const U = window.KUnits;
-  const APP_VERSION = '2.10.1';
+  const APP_VERSION = '2.10.2';
   const IS_DESKTOP = /[?&]desktop=1\b/.test(location.search);
 
   const $ = (s, el = document) => el.querySelector(s);
@@ -1063,7 +1063,7 @@
   const LABEL_DOTS = 8;                       // 203 dpi ≒ 每公釐 8 點
   const LABEL_MAX_W = 72;                     // B3S 列印頭 576 點 = 72 公釐
   const LABEL_SITE = 'https://wu8858009.github.io/kitchen-sop/';
-  const NIIM_LIB = 'vendor/niimbluelib.min.js?v=50';
+  const NIIM_LIB = 'vendor/niimbluelib.min.js?v=51';
   const labelForm = { name: '', qty: '', note: '', made: null, exp: '' };   // made：null = 今天，'' = 不印
   let niim = null;                            // 已連線的印表機
   let labelQ = '';                            // 已儲存標籤的搜尋字
@@ -2165,6 +2165,7 @@
     const pr = modal({
       title: '編輯盤點品項',
       body: `<p class="small muted">可直接從叫貨系統或 Excel 選取多列複製，點一格後貼上（Ctrl+V）會依欄位順序填入。勾「暫不供貨」或「已停用」的品項不會出現在盤點表；已停用的品項平常收起來，要改回來時勾「顯示已停用的品項」。刪除的品項已填的數字會保留，加回同名品項就會再出現。</p>
+        <div class="inv-ed-search"><input id="invEdQ" class="search" type="search" placeholder="搜尋品名、品號、規格…" autocomplete="off"><span class="muted small" id="invEdQN"></span></div>
         <div class="inv-ed-wrap"><table class="inv-ed"><thead><tr><th>#</th>${INV_COLS.map(([, l, c]) => `<th class="${c}">${l}</th>`).join('')}<th class="w-off">暫不供貨</th><th class="w-off">已停用</th><th></th></tr></thead>
         <tbody id="invEd">${db.inv.items.map(invEdRow).join('')}</tbody></table></div>
         <div class="inv-ed-foot"><button class="btn" data-ed="add">＋ 新增品項</button>
@@ -2182,10 +2183,19 @@
     // 上一列／下一列都跳過收起來的已停用品項
     const sib = (tr, d) => { let x = tr; do { x = d > 0 ? x.nextElementSibling : x.previousElementSibling; } while (x && x.hidden); return x; };
     const isStop = tr => tr.querySelector('[data-f="stop"]').checked;
+    // 搜尋：比對品名、品號、規格、單位；已停用的品項沒勾「顯示已停用」時一樣收起來
     const showStop = () => {
-      const on = $('#invEdStop').checked;
-      [...tb.rows].forEach(tr => { tr.hidden = !on && isStop(tr); });
+      const on = $('#invEdStop').checked, q = normName($('#invEdQ').value);
+      let n = 0;
+      [...tb.rows].forEach(tr => {
+        const hit = !q || ['name', 'code', 'spec', 'unit'].some(f => normName(tr.querySelector(`[data-f="${f}"]`).value).includes(q));
+        tr.hidden = !hit || (!on && isStop(tr));
+        if (q && !tr.hidden) n++;
+      });
+      $('#invEdQN').textContent = q ? `找到 ${n} 項` : '';
     };
+    $('#invEdQ').addEventListener('input', showStop);
+    $('#invEdQ').addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); e.stopPropagation(); const tr = [...tb.rows].find(r => !r.hidden); if (tr) tr.querySelector('[data-f="name"]').focus(); } });
     const countStop = () => { $('#invEdStopN').textContent = [...tb.rows].filter(isStop).length; };
     countStop();
     $('#invEdStop').addEventListener('change', showStop);
@@ -2199,7 +2209,7 @@
       const b = e.target.closest('[data-ed]');
       if (!b) return;
       const tr = b.closest('tr');
-      if (b.dataset.ed === 'add') { const r = addRow(); r.querySelector('[data-f="code"]').focus(); r.scrollIntoView({ block: 'nearest' }); }
+      if (b.dataset.ed === 'add') { if ($('#invEdQ').value) { $('#invEdQ').value = ''; showStop(); } const r = addRow(); r.querySelector('[data-f="code"]').focus(); r.scrollIntoView({ block: 'nearest' }); }
       else if (b.dataset.ed === 'rm') tr.remove();
       else if (b.dataset.ed === 'up' && sib(tr, -1)) tr.parentNode.insertBefore(tr, sib(tr, -1));
       else if (b.dataset.ed === 'down' && sib(tr, 1)) tr.parentNode.insertBefore(sib(tr, 1), tr);

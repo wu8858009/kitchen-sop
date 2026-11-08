@@ -602,6 +602,8 @@ select { max-width: 100%; }
 .inv-ed td.w-name { background: color-mix(in srgb, #ffe9a8 14%, transparent); }
 .inv-ed .w-code { width: 120px; } .inv-ed .w-spec { width: 130px; } .inv-ed .w-unit { width: 90px; }
 .inv-ed .w-price { width: 90px; } .inv-ed td.w-price input { text-align: right; }
+.inv-ed-search { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
+.inv-ed-search .search { flex: 1; min-width: 0; }
 .inv-ed .w-use { width: 110px; } .inv-ed td.w-use input { text-align: right; }
 .inv-ed .w-off { width: 76px; text-align: center; } .inv-ed td.w-off input { width: 20px; height: 20px; }
 .inv-ed tr.stopped td { opacity: .5; background: var(--bg); }
