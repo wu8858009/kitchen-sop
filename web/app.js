@@ -2,7 +2,7 @@
 (() => {
   'use strict';
   const U = window.KUnits;
-  const APP_VERSION = '2.12.0';
+  const APP_VERSION = '2.12.1';
   const IS_DESKTOP = /[?&]desktop=1\b/.test(location.search);
 
   const $ = (s, el = document) => el.querySelector(s);
@@ -1092,7 +1092,7 @@
   const LABEL_DOTS = 8;                       // 203 dpi ≒ 每公釐 8 點
   const LABEL_MAX_W = 72;                     // B3S 列印頭 576 點 = 72 公釐
   const LABEL_SITE = 'https://wu8858009.github.io/kitchen-sop/';
-  const NIIM_LIB = 'vendor/niimbluelib.min.js?v=56';
+  const NIIM_LIB = 'vendor/niimbluelib.min.js?v=57';
   const labelForm = { name: '', qty: '', note: '', made: null, exp: '' };   // made：null = 今天，'' = 不印
   let niim = null;                            // 已連線的印表機
   let labelQ = '';                            // 已儲存標籤的搜尋字
@@ -1663,6 +1663,8 @@
     const r = getRecipe(it.recipeId), mult = it.mult, mode = db.settings.unitMode;
     let body = '';
     if (c.ing && r.ingredients.length) {
+      // 食材照片跟著「照片」選項：不顯示就不放，大張就放大
+      const ph = c.photo !== 'none' && r.ingredients.some(i => i.photo && !isHead(i));
       let last = null, rows = '';
       for (const i of r.ingredients) {
         const g = i.group.trim();
@@ -1670,9 +1672,10 @@
         last = g;
         if (isHead(i)) { rows += `<div class="cc-grp cc-sub">${bv(i.name, i.nameVi || trVi(i.name))}</div>`; continue; }
         const d = U.display(i.qty == null ? null : i.qty * mult, i.unit, mode);
-        rows += `<div class="cc-ing"><span>${bv(i.name, i.nameVi || trVi(i.name))}</span><b>${bt(d.text)}</b></div>`;
+        const pic = ph ? (i.photo ? `<img class="cc-ing-ph" src="${i.photo}" alt="${esc(i.name)}">` : '<i class="cc-ing-ph"></i>') : '';
+        rows += `<div class="cc-ing">${pic}<span>${bv(i.name, i.nameVi || trVi(i.name))}</span><b>${bt(d.text)}</b></div>`;
       }
-      body += `<div class="cc-ings">${rows}</div>`;
+      body += `<div class="cc-ings${ph ? ` has-ph${c.photo === 'l' ? ' ph-l' : ''}` : ''}">${rows}</div>`;
     }
     // 只列重點：這道菜沒有標重點的話就全部列出，不然打了步驟也看不到
     const keyOnly = c.steps === 'key' && r.steps.some(s => s.key);
@@ -3412,7 +3415,7 @@
   document.addEventListener('click', e => { if (e.target.matches && e.target.matches('[data-cheat-back]')) closeCheatEditor(); });
   // ---------------------------------------------------------------- 點圖片放大
   // 獨立於 #modal，編輯視窗裡點開再關掉也不會影響視窗內容；列表縮圖在連結裡，點了是進食譜，不放大
-  const ZOOM_IMG = '.cc-photo, .hero-img, .photo-row img, .cat-cover img, .ing-ph[src]';
+  const ZOOM_IMG = '.cc-photo, .cc-ing-ph[src], .hero-img, .photo-row img, .cat-cover img, .ing-ph[src]';
   const zoomBox = document.createElement('div');
   zoomBox.id = 'zoom'; zoomBox.className = 'no-print'; zoomBox.setAttribute('role', 'dialog'); zoomBox.setAttribute('aria-label', '放大的照片');
   zoomBox.innerHTML = '<img alt=""><button class="icon zoom-x" aria-label="關閉">✕</button><div class="zoom-bar"><label class="btn zoom-ing">📷 更換照片<input type="file" accept="image/*" data-act-change="ing-photo" hidden></label><button class="btn zoom-ing zoom-rm">移除照片</button><button class="btn zoom-dl">⬇ 下載照片</button></div>';
