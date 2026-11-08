@@ -578,13 +578,32 @@ select { max-width: 100%; }
 .inv-table td.ord { background: color-mix(in srgb, var(--accent-soft) 45%, transparent); }
 .inv-table .today { background: color-mix(in srgb, var(--accent-soft) 80%, transparent); }
 .inv-table thead th.today { color: var(--accent); }
-.inv-print { color: #000; page: inv; }
-.inv-print .ip-title { font-size: 13pt; font-weight: 700; margin-bottom: 4pt; }
-.inv-print table { border-collapse: collapse; width: 100%; font-size: 9.5pt; }
-.inv-print th, .inv-print td { border: 1px solid #000; padding: 3px 2px; text-align: center; font-weight: 400; height: 26px; }
+/* 盤點訂貨表列印／PDF：深咖啡表頭、橘色訂貨欄、隔列底色 */
+.inv-print { color: #222; page: inv; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+.inv-print .ip-head { display: flex; justify-content: space-between; align-items: flex-end; padding-bottom: 6px; margin-bottom: 8px; border-bottom: 3px solid #e8892b; }
+.inv-print .ip-title { font-size: 19pt; font-weight: 800; letter-spacing: 3px; color: #3b2a1a; line-height: 1.2; }
+.inv-print .ip-range { font-size: 10.5pt; color: #555; margin-top: 2px; }
+.inv-print .ip-meta { display: flex; gap: 24px; font-size: 9.5pt; color: #444; }
+.inv-print .ip-line { display: inline-block; width: 100px; border-bottom: 1px solid #444; margin-left: 6px; vertical-align: -2px; }
+.inv-print table { border-collapse: collapse; width: 100%; font-size: 9.5pt; border: 1.5px solid #3b2a1a; }
+.inv-print th, .inv-print td { border: 1px solid #c9bfb4; padding: 3px 2px; text-align: center; font-weight: 400; height: 26px; }
+.inv-print .ds { border-left: 1.5px solid #6b5a4a; }
+.inv-print thead th { background: #f4ece3; color: #3b2a1a; font-weight: 600; }
+.inv-print .ip-days th { background: #3b2a1a; color: #fff; font-size: 10pt; border-color: #5c4632; }
+.inv-print .ip-days th.we { background: #8a4b14; }
+.inv-print .ip-days th small { display: block; font-weight: 400; font-size: 8pt; opacity: .85; }
+.inv-print .ip-rev th { background: #fff3e0; color: #b45309; font-weight: 700; }
+.inv-print .ip-rev th.nm { color: #3b2a1a; }
+.inv-print .ip-sub th { font-size: 8.5pt; color: #555; height: 20px; }
+.inv-print .ip-sub th.od { background: #fde3c4; color: #9a3412; }
+.inv-print tbody .nm { text-align: left; font-weight: 600; font-size: 10.5pt; padding: 3px 8px; white-space: nowrap; }
+.inv-print tbody .cd { font-size: 8pt; color: #777; }
+.inv-print tbody .u { color: #555; }
+.inv-print tbody td.od { background: #fff7ed; font-weight: 700; color: #9a3412; }
+.inv-print tbody tr:nth-child(even) th, .inv-print tbody tr:nth-child(even) td { background-color: #f8f4ef; }
+.inv-print tbody tr:nth-child(even) td.od { background-color: #fcebd6; }
+.inv-print .ip-foot { display: flex; justify-content: space-between; margin-top: 8px; font-size: 8.5pt; color: #666; }
 .inv-table.one { width: auto; min-width: 380px; }
-.inv-print thead th { background: #f3f3f3; }
-.inv-print .nm { text-align: center; white-space: nowrap; padding: 3px 8px; font-size: 11pt; }
 @page inv { size: A4 landscape; margin: 8mm; }
 @media print { .inv-page .print-only { display: block; } }
 .inv-table td.code input { min-width: 92px; color: var(--muted); font-size: .85rem; }

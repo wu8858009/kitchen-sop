@@ -2,7 +2,7 @@
 (() => {
   'use strict';
   const U = window.KUnits;
-  const APP_VERSION = '2.10.4';
+  const APP_VERSION = '2.10.5';
   const IS_DESKTOP = /[?&]desktop=1\b/.test(location.search);
 
   const $ = (s, el = document) => el.querySelector(s);
@@ -1063,7 +1063,7 @@
   const LABEL_DOTS = 8;                       // 203 dpi ≒ 每公釐 8 點
   const LABEL_MAX_W = 72;                     // B3S 列印頭 576 點 = 72 公釐
   const LABEL_SITE = 'https://wu8858009.github.io/kitchen-sop/';
-  const NIIM_LIB = 'vendor/niimbluelib.min.js?v=53';
+  const NIIM_LIB = 'vendor/niimbluelib.min.js?v=54';
   const labelForm = { name: '', qty: '', note: '', made: null, exp: '' };   // made：null = 今天，'' = 不印
   let niim = null;                            // 已連線的印表機
   let labelQ = '';                            // 已儲存標籤的搜尋字
@@ -2120,11 +2120,18 @@
 
   /** 列印用：仿紙本週表（A4 橫向） */
   function invPrintHtml(wk) {
-    const a = id => invRow(wk, id);
-    return `<div class="inv-print"><div class="ip-title">盤點訂貨表　${invDate(wk, 0).getFullYear()}/${mdOf(invDate(wk, 0))} ～ ${mdOf(invDate(wk, 6))}</div>
-      <table><thead>${invRow(wk, '_rev').some(Boolean) ? `<tr><th colspan="3" class="nm">預估營業額</th>${INV_DAYS.map((d, i) => `<th colspan="2">${esc(invRow(wk, '_rev')[i * 2] || '')}</th>`).join('')}</tr>` : ''}<tr><th rowspan="2" class="nm">材料名稱</th><th rowspan="2">品號</th><th rowspan="2" class="u">單位</th>${INV_DAYS.map((d, i) => `<th colspan="2">星期${d} ${mdOf(invDate(wk, i))}</th>`).join('')}</tr>
-        <tr>${INV_DAYS.map(() => '<th>盤點</th><th>訂貨</th>').join('')}</tr></thead>
-      <tbody>${db.inv.items.filter(invOn).map(x => `<tr><th class="nm">${esc(x.name)}</th><td>${esc(x.code)}</td><td>${esc(x.unit)}</td>${Array.from({ length: 14 }, (_, k) => `<td>${esc(k % 2 ? invOrd(wk, x, (k - 1) / 2) : a(x.id)[k] || '')}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`;
+    const a = id => invRow(wk, id), rev = a('_rev'), items = db.inv.items.filter(invOn);
+    const revTxt = v => { const n = num(v); return n > 0 ? '$' + n.toLocaleString('en-US') : esc(v || ''); };
+    const we = i => (i >= 5 ? ' we' : ''); // 週末欄換色
+    return `<div class="inv-print">
+      <div class="ip-head"><div><div class="ip-title">盤點訂貨表</div><div class="ip-range">${invDate(wk, 0).getFullYear()}/${mdOf(invDate(wk, 0))}（一）～ ${mdOf(invDate(wk, 6))}（日）</div></div>
+        <div class="ip-meta"><span>列印日期 ${ymd(new Date()).replace(/-/g, '/')}</span><span>填表人<i class="ip-line"></i></span></div></div>
+      <table><thead>
+        ${rev.some(Boolean) ? `<tr class="ip-rev"><th colspan="3" class="nm">預估營業額</th>${INV_DAYS.map((d, i) => `<th colspan="2" class="ds${we(i)}">${revTxt(rev[i * 2])}</th>`).join('')}</tr>` : ''}
+        <tr class="ip-days"><th rowspan="2" class="nm">材料名稱</th><th rowspan="2" class="cd">品號</th><th rowspan="2" class="u">單位</th>${INV_DAYS.map((d, i) => `<th colspan="2" class="ds${we(i)}">星期${d}<small>${mdOf(invDate(wk, i))}</small></th>`).join('')}</tr>
+        <tr class="ip-sub">${INV_DAYS.map((d, i) => `<th class="ds${we(i)}">盤點</th><th class="od${we(i)}">訂貨</th>`).join('')}</tr></thead>
+      <tbody>${items.map(x => `<tr><th class="nm">${esc(x.name)}</th><td class="cd">${esc(x.code)}</td><td class="u">${esc(x.unit)}</td>${INV_DAYS.map((d, i) => `<td class="ds">${esc(a(x.id)[i * 2] || '')}</td><td class="od">${esc(invOrd(wk, x, i))}</td>`).join('')}</tr>`).join('')}</tbody></table>
+      <div class="ip-foot"><span>共 ${items.length} 項　訂貨欄沒填時印出建議量（隔天預估營業額 × 萬元使用量 − 庫存）</span><span>主管簽核<i class="ip-line"></i></span></div></div>`;
   }
   async function buildInvPdf(wk) {
     await Promise.all(PDF_LIBS.map(loadJs));
