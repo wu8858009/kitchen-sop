@@ -561,8 +561,13 @@ select { max-width: 100%; }
 .inv-table { border-collapse: separate; border-spacing: 0; width: 100%; font-size: .92rem; }
 .inv-table th, .inv-table td { border-bottom: 1px solid var(--line); border-right: 1px solid var(--line); padding: 0; text-align: center; }
 .inv-table thead th { position: sticky; top: 0; z-index: 2; background: var(--card); padding: 6px 4px; font-weight: 600; white-space: nowrap; }
-.inv-table thead tr:first-child th { height: 54px; box-sizing: border-box; }
-.inv-table thead tr:nth-child(2) th { top: 54px; font-size: .8rem; color: var(--muted); padding: 3px; }
+.inv-table thead tr.rev th { height: 44px; box-sizing: border-box; padding: 0; }
+.inv-table thead tr.rev th.nm { padding: 4px 10px; color: var(--accent); }
+.inv-table thead tr.rev input { min-height: 43px; font-weight: 700; }
+.inv-table thead tr.days th { top: 44px; height: 54px; box-sizing: border-box; }
+.inv-table thead tr.sub th { top: 98px; font-size: .8rem; color: var(--muted); padding: 3px; }
+.inv-table td.ord input::placeholder { color: var(--accent); opacity: .9; font-weight: 700; }
+.sug-c { color: var(--accent); }
 .inv-table thead th small { display: block; font-weight: 400; color: var(--muted); font-size: .75rem; }
 .inv-table .nm { position: sticky; left: 0; z-index: 1; background: var(--card); text-align: left; padding: 4px 10px; white-space: nowrap; font-weight: 600; min-width: 96px; }
 .inv-table thead .nm { z-index: 3; }
@@ -597,6 +602,7 @@ select { max-width: 100%; }
 .inv-ed td.w-name { background: color-mix(in srgb, #ffe9a8 14%, transparent); }
 .inv-ed .w-code { width: 120px; } .inv-ed .w-spec { width: 130px; } .inv-ed .w-unit { width: 90px; }
 .inv-ed .w-price { width: 90px; } .inv-ed td.w-price input { text-align: right; }
+.inv-ed .w-use { width: 110px; } .inv-ed td.w-use input { text-align: right; }
 .inv-ed .w-off { width: 76px; text-align: center; } .inv-ed td.w-off input { width: 20px; height: 20px; }
 .inv-ed tr.stopped td { opacity: .5; background: var(--bg); }
 .inv-ed tr[hidden] { display: none; }

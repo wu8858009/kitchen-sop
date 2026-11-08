@@ -2,7 +2,7 @@
 (() => {
   'use strict';
   const U = window.KUnits;
-  const APP_VERSION = '2.9.1';
+  const APP_VERSION = '2.10.0';
   const IS_DESKTOP = /[?&]desktop=1\b/.test(location.search);
 
   const $ = (s, el = document) => el.querySelector(s);
@@ -1063,7 +1063,7 @@
   const LABEL_DOTS = 8;                       // 203 dpi ≒ 每公釐 8 點
   const LABEL_MAX_W = 72;                     // B3S 列印頭 576 點 = 72 公釐
   const LABEL_SITE = 'https://wu8858009.github.io/kitchen-sop/';
-  const NIIM_LIB = 'vendor/niimbluelib.min.js?v=48';
+  const NIIM_LIB = 'vendor/niimbluelib.min.js?v=49';
   const labelForm = { name: '', qty: '', note: '', made: null, exp: '' };   // made：null = 今天，'' = 不印
   let niim = null;                            // 已連線的印表機
   let labelQ = '';                            // 已儲存標籤的搜尋字
@@ -1998,13 +1998,14 @@
   // 依紙本「盤點／訂貨」週表：每個品項、每天各一格盤點量與訂貨量。
   // db.inv = { items: [{id,name,unit}], itemsAt, weeks: { 週一日期: { 品項id: { at, a: [一盤,一訂,二盤,二訂…日訂] } } } }
   // 同步時品項清單整份以較新的為準；每週每個品項一列各自以較新的為準（兩台同時填不同品項不會互蓋）
+  // 預估營業額存在每週的 _rev 列（a[天*2]）；品項的 use＝每萬元營業額用量（克），用來算建議叫貨量
   const INV_DAYS = ['一', '二', '三', '四', '五', '六', '日'];
   const INV_DEFAULT = '紫洋蔥 斤|紅辣椒 斤|粗蒜碎 斤|九層塔 斤|大蒜仁 斤|中薑 斤|牛奶小黃瓜 斤|白蘿蔔 斤|空心菜 斤|南部蔥 公斤|進口洋蔥 斤|杏包菇 斤|鮮香菇 斤|牛蕃茄 斤|青江菜 斤|絲瓜 斤|南瓜-木瓜形 斤|高麗菜 斤|紅蘿蔔 斤|蒜片 斤|豆芽菜 斤|細蒜泥 斤';
   function normInv(v) {
     v = v && typeof v === 'object' ? v : {};
     const has = Array.isArray(v.items);
     // 預設品項用固定 id，各裝置還沒改過清單時填的資料才對得起來
-    const items = has ? v.items.map(x => ({ id: String(x.id || uid()), name: String(x.name || ''), unit: String(x.unit || ''), code: String(x.code || ''), spec: String(x.spec || ''), price: String(x.price == null ? '' : x.price), off: !!x.off, stop: !!x.stop }))
+    const items = has ? v.items.map(x => ({ id: String(x.id || uid()), name: String(x.name || ''), unit: String(x.unit || ''), code: String(x.code || ''), spec: String(x.spec || ''), price: String(x.price == null ? '' : x.price), use: String(x.use == null ? '' : x.use), off: !!x.off, stop: !!x.stop }))
       : INV_DEFAULT.split('|').map((l, i) => { const [name, unit] = l.split(' '); return { id: 'inv' + (i + 1), name, unit, code: '', spec: '', price: '', off: false, stop: false }; });
     const weeks = {};
     if (v.weeks && typeof v.weeks === 'object') for (const [k, w] of Object.entries(v.weeks)) {
@@ -2035,6 +2036,25 @@
   let invDay = (() => { try { const v = localStorage.getItem('ksop.invDay'); if (v != null) return +v; } catch (e) { /* 無法存取 */ } return IS_MOBILE ? -2 : -1; })(); // -1 整週、-2 今天、0~6
   const invDayNow = () => (invDay === -2 ? (invWeek === weekOf(new Date()) ? (new Date().getDay() + 6) % 7 : 0) : invDay);
   const invRow = (wk, id) => ((db.inv.weeks[wk] || {})[id] || { a: [] }).a;
+  // 盤點量換成克：只寫數字就是克，也可以寫「3斤」「1.2kg」
+  const invG = s => { const p = U.parseAmount(s || ''); return !p ? null : p.unit ? U.convert(p.qty, p.unit, 'g') : p.qty; };
+  /** 建議叫貨量（品項單位，取到 0.5）＝（隔天預估營業額 ÷ 1 萬 × 每萬元用量 − 庫存）；資料不夠時回傳 '' */
+  function invSug(wk, x, i) {
+    const use = num(x.use), per = U.convert(1, x.unit, 'g'), stock = invG(invRow(wk, x.id)[i * 2]);
+    if (!(use > 0) || !per || stock == null) return '';
+    const [nw, ni] = i < 6 ? [wk, i + 1] : [ymd(invDate(wk, 7)), 0];
+    const rev = num(invRow(nw, '_rev')[ni * 2]);
+    if (!(rev > 0)) return '';
+    return U.fmtNum(Math.max(0, Math.ceil((rev / 10000 * use - stock) / per * 2) / 2));
+  }
+  // 訂貨量：自己填的優先，沒填就用建議量（0 不算）
+  const invOrd = (wk, x, i) => { const v = (invRow(wk, x.id)[i * 2 + 1] || '').trim(), s = invSug(wk, x, i); return v || (s && s !== '0' ? s : ''); };
+  function invRefreshSug() {
+    $$('#app input[data-inv]').forEach(el => {
+      const [id, k] = el.dataset.inv.split('.'), x = db.inv.items.find(y => y.id === id);
+      if (x && +k % 2) el.placeholder = invSug(invWeek, x, (+k - 1) / 2);
+    });
+  }
 
   function viewInv() {
     const today = new Date(), thisWeek = weekOf(today), td = invWeek === thisWeek ? (today.getDay() + 6) % 7 : -1;
@@ -2042,10 +2062,12 @@
     const items = db.inv.items.filter(invOn);
     const head = days.map(i => `<th colspan="2" class="${i === td ? 'today' : ''}">星期${INV_DAYS[i]}<small>${mdOf(invDate(invWeek, i))}</small></th>`).join('');
     const sub = days.map(i => `<th class="${i === td ? 'today' : ''}">盤點</th><th class="${i === td ? 'today' : ''}">訂貨</th>`).join('');
+    const revA = invRow(invWeek, '_rev');
+    const rev = days.map(i => `<th colspan="2" class="${i === td ? 'today' : ''}"><input data-inv="_rev.${i * 2}" value="${esc(revA[i * 2] || '')}" inputmode="decimal" autocomplete="off" placeholder="營業額" aria-label="星期${INV_DAYS[i]}預估營業額"></th>`).join('');
     const rows = items.map(x => {
       const a = invRow(invWeek, x.id);
       return `<tr><th class="nm">${esc(x.name)}</th><td class="code"><input data-inv="${esc(x.id)}.c" value="${esc(x.code)}" autocomplete="off" placeholder="—" aria-label="${esc(x.name)} 品號"></td><td class="u">${esc(x.unit)}</td>${days.map(i => [0, 1].map(j =>
-        `<td class="${i === td ? 'today' : ''} ${j ? 'ord' : ''}"><input data-inv="${esc(x.id)}.${i * 2 + j}" value="${esc(a[i * 2 + j] || '')}" inputmode="decimal" autocomplete="off" aria-label="${esc(x.name)} 星期${INV_DAYS[i]}${j ? '訂貨' : '盤點'}"></td>`).join('')).join('')}</tr>`;
+        `<td class="${i === td ? 'today' : ''} ${j ? 'ord' : ''}"><input data-inv="${esc(x.id)}.${i * 2 + j}" value="${esc(a[i * 2 + j] || '')}"${j ? ` placeholder="${invSug(invWeek, x, i)}"` : ''} inputmode="decimal" autocomplete="off" aria-label="${esc(x.name)} 星期${INV_DAYS[i]}${j ? '訂貨' : '盤點'}"></td>`).join('')).join('')}</tr>`;
     }).join('');
     return `<div class="page inv-page">
       <div class="page-head no-print"><h1 class="head-title">盤點訂貨</h1><div class="spacer"></div>
@@ -2060,9 +2082,10 @@
       </div>
       <div class="chips no-print">${[[-2, '今天'], [-1, '整週'], ...INV_DAYS.map((d, i) => [i, d])].map(([v, l]) => `<button class="chip ${invDay === v ? 'on' : ''}" data-act="inv-day" data-v="${v}">${l}</button>`).join('')}</div>
       ${items.length ? `<div class="inv-wrap no-print"><table class="inv-table ${day < 0 ? 'week' : 'one'}">
-        <thead><tr><th rowspan="2" class="nm">材料名稱</th><th rowspan="2" class="code">品號</th><th rowspan="2" class="u">單位</th>${head}</tr><tr>${sub}</tr></thead>
+        <thead><tr class="rev"><th colspan="3" class="nm">預估營業額（元）</th>${rev}</tr>
+        <tr class="days"><th rowspan="2" class="nm">材料名稱</th><th rowspan="2" class="code">品號</th><th rowspan="2" class="u">單位</th>${head}</tr><tr class="sub">${sub}</tr></thead>
         <tbody>${rows}</tbody></table></div>
-        <p class="hint no-print">輸入後自動儲存；按 Enter 跳到下一個品項。</p>`
+        <p class="hint no-print">輸入後自動儲存；按 Enter 跳到下一個品項。盤點填克數（也可寫「3斤」），訂貨格會用<b class="sug-c">橘色</b>顯示建議量：隔天預估營業額 ÷ 1 萬 × 每萬元用量 − 庫存。每萬元用量在「編輯品項」設定；自己輸入訂貨量就以你填的為準。</p>`
         : '<div class="empty no-print"><p>還沒有品項。</p><button class="btn primary" data-act="inv-items">＋ 加入品項</button></div>'}
       <div class="print-only" id="invPrint"></div>
     </div>`;
@@ -2079,9 +2102,9 @@
   function invPrintHtml(wk) {
     const a = id => invRow(wk, id);
     return `<div class="inv-print"><div class="ip-title">盤點訂貨表　${invDate(wk, 0).getFullYear()}/${mdOf(invDate(wk, 0))} ～ ${mdOf(invDate(wk, 6))}</div>
-      <table><thead><tr><th rowspan="2" class="nm">材料名稱</th><th rowspan="2">品號</th><th rowspan="2" class="u">單位</th>${INV_DAYS.map((d, i) => `<th colspan="2">星期${d} ${mdOf(invDate(wk, i))}</th>`).join('')}</tr>
+      <table><thead>${invRow(wk, '_rev').some(Boolean) ? `<tr><th colspan="3" class="nm">預估營業額</th>${INV_DAYS.map((d, i) => `<th colspan="2">${esc(invRow(wk, '_rev')[i * 2] || '')}</th>`).join('')}</tr>` : ''}<tr><th rowspan="2" class="nm">材料名稱</th><th rowspan="2">品號</th><th rowspan="2" class="u">單位</th>${INV_DAYS.map((d, i) => `<th colspan="2">星期${d} ${mdOf(invDate(wk, i))}</th>`).join('')}</tr>
         <tr>${INV_DAYS.map(() => '<th>盤點</th><th>訂貨</th>').join('')}</tr></thead>
-      <tbody>${db.inv.items.filter(invOn).map(x => `<tr><th class="nm">${esc(x.name)}</th><td>${esc(x.code)}</td><td>${esc(x.unit)}</td>${Array.from({ length: 14 }, (_, k) => `<td>${esc(a(x.id)[k] || '')}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`;
+      <tbody>${db.inv.items.filter(invOn).map(x => `<tr><th class="nm">${esc(x.name)}</th><td>${esc(x.code)}</td><td>${esc(x.unit)}</td>${Array.from({ length: 14 }, (_, k) => `<td>${esc(k % 2 ? invOrd(wk, x, (k - 1) / 2) : a(x.id)[k] || '')}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`;
   }
   async function buildInvPdf(wk) {
     await Promise.all(PDF_LIBS.map(loadJs));
@@ -2102,7 +2125,7 @@
   /** 某一天的訂貨單文字（傳 LINE 給廠商用） */
   function invOrderText(wk, i) {
     const a = id => invRow(wk, id);
-    const lines = db.inv.items.filter(x => invOn(x) && (a(x.id)[i * 2 + 1] || '').trim()).map(x => `${x.code ? x.code + ' ' : ''}${x.name} ${a(x.id)[i * 2 + 1]}${/^[\d.\/\s]+$/.test(a(x.id)[i * 2 + 1]) ? ' ' + x.unit : ''}`);
+    const lines = db.inv.items.filter(x => invOn(x) && invOrd(wk, x, i)).map(x => { const v = invOrd(wk, x, i); return `${x.code ? x.code + ' ' : ''}${x.name} ${v}${/^[\d.\/\s]+$/.test(v) ? ' ' + x.unit : ''}`; });
     return lines.length ? `${mdOf(invDate(wk, i))}（${INV_DAYS[i]}）訂貨\n${lines.join('\n')}` : '';
   }
 
@@ -2117,10 +2140,10 @@
 
   // 品項編輯：仿叫貨系統的表格（# 品號 品名 規格 單位名稱 單價 暫不供貨 已停用）；可從 Excel／叫貨系統複製多列貼上
   const invOn = x => !x.off && !x.stop;
-  const INV_COLS = [['code', '品號', 'w-code'], ['name', '品名', 'w-name'], ['spec', '規格', 'w-spec'], ['unit', '單位名稱', 'w-unit'], ['price', '單價', 'w-price']];
+  const INV_COLS = [['code', '品號', 'w-code'], ['name', '品名', 'w-name'], ['spec', '規格', 'w-spec'], ['unit', '單位名稱', 'w-unit'], ['price', '單價', 'w-price'], ['use', '每萬元用量(克)', 'w-use']];
   function invEdRow(x, k) {
     return `<tr data-id="${esc(x.id || '')}"${x.stop ? ' class="stopped" hidden' : ''}><td class="no">${k + 1}</td>
-      ${INV_COLS.map(([f, , c]) => `<td class="${c}"><input data-f="${f}" value="${esc(x[f] || '')}" autocomplete="off"${f === 'price' ? ' inputmode="decimal"' : ''}${f === 'name' || f === 'unit' ? '' : ' data-ime="en"'}></td>`).join('')}
+      ${INV_COLS.map(([f, , c]) => `<td class="${c}"><input data-f="${f}" value="${esc(x[f] || '')}" autocomplete="off"${f === 'price' || f === 'use' ? ' inputmode="decimal"' : ''}${f === 'name' || f === 'unit' ? '' : ' data-ime="en"'}></td>`).join('')}
       <td class="w-off"><input type="checkbox" data-f="off" ${x.off ? 'checked' : ''} aria-label="暫不供貨"></td>
       <td class="w-off"><input type="checkbox" data-f="stop" ${x.stop ? 'checked' : ''} aria-label="已停用"></td>
       <td class="w-act"><button class="icon" data-ed="up" title="上移">▲</button><button class="icon" data-ed="down" title="下移">▼</button><button class="icon" data-ed="rm" title="刪除">✕</button></td></tr>`;
@@ -2209,7 +2232,7 @@
       if (seen.has(key)) continue;
       seen.add(key);
       const prevCode = (db.inv.allCodes || {})[key];
-      items.push({ id: r.id || old[key] || uid(), name, code: r.code || (r.id ? '' : prevCode || ''), spec: r.spec, unit: r.unit, price: r.price, off: !!r.off, stop: !!r.stop });
+      items.push({ id: r.id || old[key] || uid(), name, code: r.code || (r.id ? '' : prevCode || ''), spec: r.spec, unit: r.unit, price: r.price, use: r.use || '', off: !!r.off, stop: !!r.stop });
     }
     db.inv.allCodes = { ...db.inv.allCodes };
     db.inv.items.concat(items).forEach(x => { if (x.code) db.inv.allCodes[normName(x.name)] = x.code; });
@@ -3740,7 +3763,7 @@
     if (t.dataset.inv && route.name === 'inv') {
       const [id, k] = t.dataset.inv.split('.');
       if (k === 'c') { const x = db.inv.items.find(y => y.id === id); if (x) { x.code = t.value.trim(); db.inv.itemsAt = Date.now(); persist(); } }
-      else invSet(id, +k, t.value);
+      else { invSet(id, +k, t.value); invRefreshSug(); }
       return;
     }
     if ((t.dataset.sop || t.dataset.sopRow) && route.name === 'sop') {
