@@ -23,7 +23,7 @@ const CHUNK = 45000; // 每格上限 5 萬字，照片分段存放
 
 const SHEETS = {
   recipes: { name: "食譜", cols: ["id", "名稱", "分類", "基準份量", "份量單位", "備註", "照片", "建立時間", "更新時間", "名稱(越)", "分類(越)", "備註(越)", "保存期限", "保存期限(越)"], text: [1, 2, 3, 5, 6, 7, 10, 11, 12, 13, 14] },
-  ings: { name: "食材", cols: ["食譜id", "食譜名稱", "順序", "分組", "食材", "數量", "單位", "備註", "id", "分組(越)", "食材(越)", "備註(越)"], text: [1, 2, 4, 5, 7, 8, 9, 10, 11, 12] },
+  ings: { name: "食材", cols: ["食譜id", "食譜名稱", "順序", "分組", "食材", "數量", "單位", "備註", "id", "分組(越)", "食材(越)", "備註(越)", "照片"], text: [1, 2, 4, 5, 7, 8, 9, 10, 11, 12, 13] },
   steps: { name: "步驟", cols: ["食譜id", "食譜名稱", "順序", "步驟說明", "計時(分)", "重點", "id", "步驟說明(越)"], text: [1, 2, 4, 6, 7, 8] },
   prices: { name: "單價", cols: ["id", "食材", "價格", "每", "單位"], text: [1, 2, 5] },
   // SOP 主資料：一份一列，表格內容存在「資料(JSON)」欄，其他欄方便在試算表瀏覽
@@ -208,7 +208,7 @@ function load_(ss) {
 
   const ings = rows_(ss, "ings").filter((r) => byId[str_(r[0])] && (r[4] !== "" || r[5] !== ""));
   ings.sort((a, b) => (num_(a[2]) || 0) - (num_(b[2]) || 0));
-  ings.forEach((r) => byId[str_(r[0])].ingredients.push({ id: str_(r[8]), group: str_(r[3]), name: str_(r[4]), qty: num_(r[5]), unit: str_(r[6]), note: str_(r[7]), groupVi: str_(r[9]), nameVi: str_(r[10]), noteVi: str_(r[11]) }));
+  ings.forEach((r) => byId[str_(r[0])].ingredients.push({ id: str_(r[8]), group: str_(r[3]), name: str_(r[4]), qty: num_(r[5]), unit: str_(r[6]), note: str_(r[7]), groupVi: str_(r[9]), nameVi: str_(r[10]), noteVi: str_(r[11]), photoHash: str_(r[12]) }));
 
   const steps = rows_(ss, "steps").filter((r) => byId[str_(r[0])] && r[3] !== "");
   steps.sort((a, b) => (num_(a[2]) || 0) - (num_(b[2]) || 0));
@@ -220,7 +220,10 @@ function load_(ss) {
   const info = photoInfo_(ss);
   const photos = Object.assign({}, info.good, info.bad);
   badPhotos_(ss, Object.keys(info.bad));
-  recipes.forEach((r) => { r.photo = photos[r.photoHash] || ""; delete r.photoHash; });
+  recipes.forEach((r) => {
+    r.photo = photos[r.photoHash] || ""; delete r.photoHash;
+    r.ingredients.forEach((i) => { i.photo = photos[i.photoHash] || ""; delete i.photoHash; });
+  });
 
   const sops = rows_(ss, "sops").filter((r) => r[0] !== "").map((r) => {
     const o = json_(str_(r[8]), {});
@@ -246,7 +249,7 @@ function load_(ss) {
   });
 
   return {
-    ok: true, rev: Number(sys.rev) || 0, photoHashes: Object.keys(info.good),
+    ok: true, rev: Number(sys.rev) || 0, photoHashes: Object.keys(info.good), ingPhotos: true,
     db: {
       version: 1, recipes: recipes, prices: prices, sops: sops, inv: inv, catPhotos: catPhotos,
       plan: json_(sys.plan, []), settings: json_(sys.settings, {}), deleted: json_(sys.deleted, {}),
@@ -281,7 +284,9 @@ function save_(ss, req) {
     const used = {};
     const need = [];
     if (!hasSops) rows_(ss, "sops").forEach((r) => { if (r[0] !== "" && r[7] !== "") used[str_(r[7])] = true; });
-    recipes.concat(sops, catPhotos).forEach((r) => {
+    const ingList = [];
+    recipes.forEach((r) => (r.ingredients || []).forEach((i) => ingList.push(i)));
+    recipes.concat(sops, catPhotos, ingList).forEach((r) => {
       let h = r.photoHash;
       if (!h) return;
       const rejected = incoming[h] != null && !okPhoto_(String(incoming[h]));
@@ -298,7 +303,7 @@ function save_(ss, req) {
     const recipeRows = [], ingRows = [], stepRows = [];
     recipes.forEach((r) => {
       recipeRows.push([str_(r.id), str_(r.name), str_(r.category), num_(r.yieldQty) || 1, str_(r.yieldUnit), str_(r.notes), str_(r.photoHash), date_(r.createdAt), date_(r.updatedAt), str_(r.nameVi), str_(r.categoryVi), str_(r.notesVi), str_(r.shelf), str_(r.shelfVi)]);
-      (r.ingredients || []).forEach((i, k) => ingRows.push([str_(r.id), str_(r.name), k + 1, str_(i.group), str_(i.name), i.qty == null ? "" : Number(i.qty), str_(i.unit), str_(i.note), str_(i.id), str_(i.groupVi), str_(i.nameVi), str_(i.noteVi)]));
+      (r.ingredients || []).forEach((i, k) => ingRows.push([str_(r.id), str_(r.name), k + 1, str_(i.group), str_(i.name), i.qty == null ? "" : Number(i.qty), str_(i.unit), str_(i.note), str_(i.id), str_(i.groupVi), str_(i.nameVi), str_(i.noteVi), str_(i.photoHash)]));
       (r.steps || []).forEach((s, k) => stepRows.push([str_(r.id), str_(r.name), k + 1, str_(s.text), s.minutes == null ? "" : Number(s.minutes), s.key ? "是" : "", str_(s.id), str_(s.textVi)]));
     });
     const priceRows = (Array.isArray(d.prices) ? d.prices : []).map((p) => [str_(p.id), str_(p.name), p.price == null ? "" : Number(p.price), Number(p.perQty) || 1, str_(p.perUnit)]);
