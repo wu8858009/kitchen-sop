@@ -2,7 +2,7 @@
 (() => {
   'use strict';
   const U = window.KUnits;
-  const APP_VERSION = '2.12.2';
+  const APP_VERSION = '2.12.3';
   const IS_DESKTOP = /[?&]desktop=1\b/.test(location.search);
 
   const $ = (s, el = document) => el.querySelector(s);
@@ -970,6 +970,7 @@
   const WEEK = ['日', '一', '二', '三', '四', '五', '六'];
   const WEEK_ORDER = [1, 2, 3, 4, 5, 6, 0];
   let schedDay = null; // 正在看的星期（0＝週日）；null＝今天
+  let schedWeek = 0;   // 0＝本週、1＝下週
   function schedCfg() {
     let s = db.settings.schedule;
     if (!s || typeof s !== 'object') s = db.settings.schedule = {};
@@ -979,15 +980,16 @@
     return s;
   }
   const schedShown = () => (schedDay == null ? new Date().getDay() : schedDay);
-  // 這週（週一開始）裡那一天的日期
-  function schedDate(day) {
+  // 正在看的那一週（週一開始）裡那一天的日期
+  function schedDate(day, week = schedWeek) {
     const d = new Date(), today = d.getDay();
-    d.setDate(d.getDate() + ((day + 6) % 7) - ((today + 6) % 7));
+    d.setDate(d.getDate() + ((day + 6) % 7) - ((today + 6) % 7) + week * 7);
     return d;
   }
   const schedItems = day => schedCfg().days[day].filter(x => !x.recipeId || getRecipe(x.recipeId));
   function viewSched() {
-    const s = schedCfg(), day = schedShown(), date = schedDate(day), key = ymd(date), today = new Date().getDay();
+    const s = schedCfg(), day = schedShown(), date = schedDate(day), key = ymd(date), today = schedWeek ? -1 : new Date().getDay(); // 看下週時沒有「今天」
+    const weekLabel = w => `${w ? '下週' : '本週'} ${mdOf(schedDate(1, w))}～${mdOf(schedDate(0, w))}`;
     s.days[day] = schedItems(day).sort((a, b) => (a.time || '99').localeCompare(b.time || '99'));
     const list = s.days[day], done = new Set(s.done[key] || []);
     const avail = shownRecipes().sort((a, b) => a.name.localeCompare(b.name, 'zh-Hant'));
@@ -997,7 +999,9 @@
         ${list.some(x => x.recipeId) ? '<button class="btn" data-act="sched-to-plan">🧾 帶入備料單</button>' : ''}
         ${list.length ? '<button class="btn" data-act="print">🖨 列印</button>' : ''}</div>
       <p class="muted no-print">設定每週固定要備的菜和時間，每天打開就知道今天要做什麼。勾選做好的項目，下週同一天會重新開始。</p>
-      <div class="chips sched-days no-print">${WEEK_ORDER.map(i => `<button class="chip ${i === day ? 'on' : ''}" data-act="sched-day" data-v="${i}">${i === today ? '今天 ' : ''}週${WEEK[i]}${s.days[i].length ? ` <span class="n">${s.days[i].length}</span>` : ''}</button>`).join('')}</div>
+      <div class="chips no-print">${[0, 1].map(w => `<button class="chip ${w === schedWeek ? 'on' : ''}" data-act="sched-week" data-v="${w}">${weekLabel(w)}</button>`).join('')}</div>
+      ${schedWeek ? '<p class="muted small no-print">下週沿用每週固定的內容；在這裡新增或修改，每一週都會跟著變，勾選完成則只算這一天。</p>' : ''}
+      <div class="chips sched-days no-print">${WEEK_ORDER.map(i => `<button class="chip ${i === day ? 'on' : ''}" data-act="sched-day" data-v="${i}">${i === today ? '今天 ' : ''}週${WEEK[i]} ${mdOf(schedDate(i))}${s.days[i].length ? ` <span class="n">${s.days[i].length}</span>` : ''}</button>`).join('')}</div>
       <section class="card">
         <div class="sec-head"><h2>${date.getMonth() + 1}/${date.getDate()}（${WEEK[day]}）${day === today ? '今天' : ''}的備料</h2><div class="spacer"></div>
           ${list.length ? `<span class="muted small">${left ? `還有 ${left} 項` : '全部完成 ✅'}</span>` : ''}</div>
@@ -1092,7 +1096,7 @@
   const LABEL_DOTS = 8;                       // 203 dpi ≒ 每公釐 8 點
   const LABEL_MAX_W = 72;                     // B3S 列印頭 576 點 = 72 公釐
   const LABEL_SITE = 'https://wu8858009.github.io/kitchen-sop/';
-  const NIIM_LIB = 'vendor/niimbluelib.min.js?v=58';
+  const NIIM_LIB = 'vendor/niimbluelib.min.js?v=59';
   const labelForm = { name: '', qty: '', note: '', made: null, exp: '' };   // made：null = 今天，'' = 不印
   let niim = null;                            // 已連線的印表機
   let labelQ = '';                            // 已儲存標籤的搜尋字
@@ -3597,6 +3601,7 @@
       case 'mult': setMult(+el.dataset.v); { const mi = $('#mult'); if (mi) mi.value = multText(vs(route.id).mult); } break;
       case 'check': { const s = vs(route.id).checked; el.checked ? s.add(el.dataset.i) : s.delete(el.dataset.i); el.closest('tr').classList.toggle('done', el.checked); break; }
       case 'plan-check': el.closest('tr').classList.toggle('done', el.checked); break;
+      case 'sched-week': schedWeek = +el.dataset.v; schedDay = schedWeek ? 1 : null; render(); break; // 下週從週一開始看，回本週回到今天
       case 'sched-day': schedDay = +el.dataset.v === new Date().getDay() ? null : +el.dataset.v; render(); break;
       case 'sched-check': schedCheck(el.dataset.id, el.checked); render(); break;
       case 'sched-rm': schedCfg().days[schedShown()].splice(+el.dataset.k, 1); persist(); render(); break;
