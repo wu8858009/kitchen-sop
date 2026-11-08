@@ -2,7 +2,7 @@
 (() => {
   'use strict';
   const U = window.KUnits;
-  const APP_VERSION = '2.10.3';
+  const APP_VERSION = '2.10.4';
   const IS_DESKTOP = /[?&]desktop=1\b/.test(location.search);
 
   const $ = (s, el = document) => el.querySelector(s);
@@ -1063,7 +1063,7 @@
   const LABEL_DOTS = 8;                       // 203 dpi ≒ 每公釐 8 點
   const LABEL_MAX_W = 72;                     // B3S 列印頭 576 點 = 72 公釐
   const LABEL_SITE = 'https://wu8858009.github.io/kitchen-sop/';
-  const NIIM_LIB = 'vendor/niimbluelib.min.js?v=52';
+  const NIIM_LIB = 'vendor/niimbluelib.min.js?v=53';
   const labelForm = { name: '', qty: '', note: '', made: null, exp: '' };   // made：null = 今天，'' = 不印
   let niim = null;                            // 已連線的印表機
   let labelQ = '';                            // 已儲存標籤的搜尋字
@@ -2133,10 +2133,13 @@
     host.style.cssText = 'position:fixed;left:-10000px;top:0;width:1100px';
     host.innerHTML = invPrintHtml(wk);
     document.body.appendChild(host);
+    const M = 8, W = 297 - M * 2, H = 210 - M * 2;
+    // 品項多時表格比紙張瘦長，縮到一頁會兩邊留白；把表格拉寬到和紙張同比例，印出來左右滿版
+    for (let n = 0; n < 3; n++) { const want = Math.ceil(host.firstElementChild.offsetHeight * W / H); if (want <= host.offsetWidth + 4) break; host.style.width = want + 'px'; }
     try {
       const cv = await window.html2canvas(host.firstElementChild, { scale: 2, backgroundColor: '#ffffff' });
       const pdf = new window.jspdf.jsPDF({ unit: 'mm', format: 'a4', orientation: 'landscape' });
-      const M = 8, W = 297 - M * 2, H = 210 - M * 2, imgH = cv.height * W / cv.width, k = Math.min(1, H / imgH);
+      const imgH = cv.height * W / cv.width, k = Math.min(1, H / imgH);
       pdf.addImage(cv.toDataURL('image/jpeg', 0.92), 'JPEG', M + (W - W * k) / 2, M, W * k, imgH * k);
       return new File([pdf.output('blob')], `盤點訂貨_${wk}.pdf`, { type: 'application/pdf' });
     } finally { host.remove(); }
