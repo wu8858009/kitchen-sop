@@ -2,7 +2,7 @@
 (() => {
   'use strict';
   const U = window.KUnits;
-  const APP_VERSION = '2.10.5';
+  const APP_VERSION = '2.11.0';
   const IS_DESKTOP = /[?&]desktop=1\b/.test(location.search);
 
   const $ = (s, el = document) => el.querySelector(s);
@@ -117,7 +117,7 @@
 
   // ---------------------------------------------------------------- 資料模型
   function emptyDb() {
-    return { version: 1, recipes: [], prices: [], sops: [], inv: normInv(null), plan: [], settings: { unitMode: 'auto', ringTone: 'beep', ringVol: 0.8 }, deleted: {}, pricesUpdatedAt: 0, cloud: null, sync: { rev: 0, dirty: false, photos: [] } };
+    return { version: 1, recipes: [], prices: [], sops: [], inv: normInv(null), catPhotos: [], plan: [], settings: { unitMode: 'auto', ringTone: 'beep', ringVol: 0.8 }, deleted: {}, pricesUpdatedAt: 0, cloud: null, sync: { rev: 0, dirty: false, photos: [] } };
   }
 
   // 雲端壞掉的照片（舊版後端存成 #ERROR!）放到 photoBad，畫面不顯示，同步時仍指向原本那張
@@ -172,6 +172,15 @@
     };
   }
 
+  // 分類封面照片：每個分類一筆，移除時留下空照片和時間，同步時才不會被別台裝置救回來
+  function normCatPhotos(v) {
+    const m = new Map();
+    for (const x of Array.isArray(v) ? v : []) {
+      const cat = String((x && x.cat) || '').trim();
+      if (cat && !(m.has(cat) && m.get(cat).at >= (+x.at || 0))) m.set(cat, { cat, at: +x.at || 0, ...splitPhoto(x) });
+    }
+    return [...m.values()];
+  }
   function normPrice(p) {
     return { id: String(p.id || uid()), name: String(p.name || ''), price: num(p.price), perQty: num(p.perQty) || 1, perUnit: String(p.perUnit || '') };
   }
@@ -188,6 +197,7 @@
       deleted: d.deleted && typeof d.deleted === 'object' && !Array.isArray(d.deleted) ? { ...d.deleted } : {},
       sops: Array.isArray(d.sops) ? d.sops.map(normSop) : [],
       inv: normInv(d.inv),
+      catPhotos: normCatPhotos(d.catPhotos),
       pricesUpdatedAt: +d.pricesUpdatedAt || 0,
       pristine: !!d.pristine, // 只有自動放入、沒動過的範例資料
       cloud: d.cloud && d.cloud.url ? { url: String(d.cloud.url), key: String(d.cloud.key || '') } : null,
@@ -211,6 +221,11 @@
   // 設定裡勾選隱藏的分類：「全部」、小抄、備料單和行程的選單都不出現，點那個分類才看得到
   const hiddenCats = () => new Set(Array.isArray(db.settings.hiddenCats) ? db.settings.hiddenCats : []);
   const shownRecipes = () => { const h = hiddenCats(); return db.recipes.filter(r => !h.has(r.category.trim())); };
+  const catPhoto = c => { const x = db.catPhotos.find(y => y.cat === c); return x ? x.photo : ''; };
+  function setCatPhoto(cat, photo) {
+    db.catPhotos = [...db.catPhotos.filter(x => x.cat !== cat), { cat, at: Date.now(), photo, photoBad: '' }];
+    persist();
+  }
 
   function sampleData() {
     const I = (name, qty, unit, note = '', group = '') => ({ name, qty, unit, note, group });
@@ -443,12 +458,23 @@
       </div>
       <div class="chips" id="cats">
         <button class="chip ${listFilter.cat ? '' : 'on'}" data-act="cat" data-v="">全部</button>
-        ${cats.map(c => `<button class="chip ${listFilter.cat === c ? 'on' : ''} ${hidden.has(c) ? 'hid' : ''}" data-act="cat" data-v="${esc(c)}" ${hidden.has(c) ? 'title="已隱藏的分類（可在設定裡改）"' : ''}>${esc(c)}</button>`).join('')}
+        ${cats.map(c => `<button class="chip ${listFilter.cat === c ? 'on' : ''} ${hidden.has(c) ? 'hid' : ''}" data-act="cat" data-v="${esc(c)}" ${hidden.has(c) ? 'title="已隱藏的分類（可在設定裡改）"' : ''}>${catPhoto(c) ? `<img class="chip-img" src="${catPhoto(c)}" alt="">` : ''}${esc(c)}</button>`).join('')}
       </div>
+      <div id="catCover"></div>
       <div class="grid" id="list"></div>
     </div>`;
   }
+  function catCoverHtml() {
+    const c = listFilter.cat, p = c && catPhoto(c);
+    if (!c) return '';
+    const pick = `<input type="file" accept="image/*" data-act-change="cat-photo" hidden>`;
+    if (!p) return `<label class="cat-cover empty" title="選一張照片當「${esc(c)}」的封面">${pick}<span>📷 ＋ 加入「${esc(c)}」封面照片</span></label>`;
+    return `<div class="cat-cover"><img src="${p}" alt="${esc(c)}"><div class="cc-name">${esc(c)}</div>
+      <div class="cc-btns no-print"><label class="btn sm">更換封面${pick}</label><button class="btn sm ghost" data-act="cat-photo-rm">移除</button></div></div>`;
+  }
   function updateList() {
+    const cov = $('#catCover');
+    if (cov) cov.innerHTML = db.recipes.length ? catCoverHtml() : '';
     const q = normName(listFilter.q);
     const pm = priceMap();
     const rs = (listFilter.cat ? db.recipes : shownRecipes())
@@ -1063,7 +1089,7 @@
   const LABEL_DOTS = 8;                       // 203 dpi ≒ 每公釐 8 點
   const LABEL_MAX_W = 72;                     // B3S 列印頭 576 點 = 72 公釐
   const LABEL_SITE = 'https://wu8858009.github.io/kitchen-sop/';
-  const NIIM_LIB = 'vendor/niimbluelib.min.js?v=54';
+  const NIIM_LIB = 'vendor/niimbluelib.min.js?v=55';
   const labelForm = { name: '', qty: '', note: '', made: null, exp: '' };   // made：null = 今天，'' = 不印
   let niim = null;                            // 已連線的印表機
   let labelQ = '';                            // 已儲存標籤的搜尋字
@@ -3186,7 +3212,8 @@
       const t = sopTotals(o);
       return { ...rest, photoHash: h, totals: { cost: t.cost, profit: t.profit } };
     });
-    return { db: { ...shareable(db), recipes, sops }, photos };
+    const catPhotos = db.catPhotos.map(x => ({ cat: x.cat, at: x.at, photoHash: ref(x.photo || x.photoBad) }));
+    return { db: { ...shareable(db), recipes, sops, catPhotos }, photos };
   }
 
   async function pushOnce(force) {
@@ -3220,7 +3247,7 @@
     const sops = [...smap.values()].filter(o => !(deleted[o.id] >= (o.updatedAt || 0)));
     const localPrices = local.pricesUpdatedAt >= remote.pricesUpdatedAt;
     return {
-      ...local, recipes, sops, deleted, inv: mergeInv(local.inv, remote.inv),
+      ...local, recipes, sops, deleted, inv: mergeInv(local.inv, remote.inv), catPhotos: normCatPhotos([...remote.catPhotos, ...local.catPhotos]),
       settings: { ...local.settings, labels: { ...LABEL_DEF, ...local.settings.labels, saved: mergeLabels((local.settings.labels || {}).saved, (remote.settings.labels || {}).saved, deleted) } },
       prices: localPrices ? local.prices : remote.prices,
       pricesUpdatedAt: Math.max(local.pricesUpdatedAt, remote.pricesUpdatedAt),
@@ -3237,16 +3264,22 @@
     }
     return n;
   }
+  function keepGoodCat(list) {
+    let n = 0;
+    for (const x of list) { const o = db.catPhotos.find(y => y.cat === x.cat); if (x.photoBad && o && o.photo) { x.photo = o.photo; x.photoBad = ''; n++; } }
+    return n;
+  }
   function canFixPhotos(bad) {
     if (!bad || !bad.length) return false;
-    const mine = new Set([...db.recipes, ...db.sops].filter(x => x.photo).map(x => hashStr(x.photo)));
+    const mine = new Set([...db.recipes, ...db.sops, ...db.catPhotos].filter(x => x.photo).map(x => hashStr(x.photo)));
     return bad.some(h => mine.has(h));
   }
   function applyRemote(L, merge) {
     const remote = normalizeDb(L.db);
     if (!Array.isArray(L.db && L.db.sops)) remote.sops = db.sops; // 舊版後端沒有 SOP：保留本機的
     if (!(L.db && L.db.inv)) remote.inv = db.inv;                  // 舊版後端沒有盤點訂貨：保留本機的
-    const healed = keepGoodPhotos(remote.recipes, db.recipes) + keepGoodPhotos(remote.sops, db.sops) > 0;
+    if (!Array.isArray(L.db && L.db.catPhotos)) remote.catPhotos = db.catPhotos; // 舊版後端沒有分類封面：保留本機的
+    const healed = keepGoodPhotos(remote.recipes, db.recipes) + keepGoodPhotos(remote.sops, db.sops) + keepGoodCat(remote.catPhotos) > 0;
     const sync = { ...db.sync, rev: L.rev, photos: L.photoHashes || db.sync.photos };
     if (merge) { db = mergeDb(db, remote); db.sync = { ...sync, dirty: true }; }
     else db = { ...remote, cloud: db.cloud, sync: { ...sync, dirty: healed } };
@@ -3370,7 +3403,7 @@
   document.addEventListener('click', e => { if (e.target.matches && e.target.matches('[data-cheat-back]')) closeCheatEditor(); });
   // ---------------------------------------------------------------- 點圖片放大
   // 獨立於 #modal，編輯視窗裡點開再關掉也不會影響視窗內容；列表縮圖在連結裡，點了是進食譜，不放大
-  const ZOOM_IMG = '.cc-photo, .hero-img, .photo-row img';
+  const ZOOM_IMG = '.cc-photo, .hero-img, .photo-row img, .cat-cover img';
   const zoomBox = document.createElement('div');
   zoomBox.id = 'zoom'; zoomBox.className = 'no-print'; zoomBox.setAttribute('role', 'dialog'); zoomBox.setAttribute('aria-label', '放大的照片');
   zoomBox.innerHTML = '<img alt=""><button class="icon zoom-x" aria-label="關閉">✕</button><button class="btn zoom-dl">⬇ 下載照片</button>';
@@ -3455,7 +3488,7 @@
     'inv-print': '列印這週的盤點訂貨表', 'inv-week': '切換週次', 'kbd-help': '查看所有鍵盤快捷鍵',
     'label-a4': '排版到 A4 紙，用一般印表機印出後沿虛線裁開', 'label-browser': '電腦版視窗不能連印表機，把這張標籤帶到 Edge／Chrome 列印', 'label-connect': '連線精臣 B3S 標籤機', 'label-disconnect': '中斷和標籤機的連線', 'label-load': '把這張標籤的內容帶入，日期用當天重算',
     'label-png': '存成 PNG 圖片，可匯入精臣 App 列印', 'label-print': '把這張標籤印到已連線的 B3S', 'label-rm': '刪除這張已儲存的標籤', 'label-save': '儲存內容，下次點一下就能帶入；相同品名會更新', 'label-sys': '用系統印表機列印，紙張設成標籤尺寸',
-    mult: '把份量換成這個倍數', mv: '調整順序', 'photo-rm': '移除這張照片', 'cheat-photo-rm': '移除這道菜的照片，食譜頁也會一起移除', 'plan-add': '把選單中的菜加到備料單', 'plan-check': '勾選表示這項已備好', 'plan-clear': '清空備料單，食譜不會被刪除', 'plan-rm': '從備料單移除這道菜',
+    mult: '把份量換成這個倍數', mv: '調整順序', 'photo-rm': '移除這張照片', 'cat-photo-rm': '移除這個分類的封面照片', 'cheat-photo-rm': '移除這道菜的照片，食譜頁也會一起移除', 'plan-add': '把選單中的菜加到備料單', 'plan-check': '勾選表示這項已備好', 'plan-clear': '清空備料單，食譜不會被刪除', 'plan-rm': '從備料單移除這道菜',
     'price-add': '新增一筆食材單價', 'price-import': '把食譜用到、還沒有單價的食材加進來', 'price-rm': '刪除這筆單價', print: '列印這一頁', 'ring-file-rm': '移除自訂提示音，改回內建鈴聲', 'ring-test': '播放目前選的提示音', rm: '刪除這一列', 'save-recipe': '儲存這道食譜', seed: '載入內建的範例食譜',
     'sop-del': '刪除這份 SOP', 'sop-dup': '複製一份 SOP', 'sop-from-recipe': '從選擇的食譜帶入食材', 'sop-new': '新增一份空白 SOP', 'sop-photo-rm': '移除這張成品照片', 'sop-print': '列印這份 SOP 表單', 'sop-row-add': '新增一列食材', 'sop-row-mv': '調整順序', 'sop-row-rm': '刪除這一列',
     stepdone: '點一下標記這個步驟已完成', 't-add': '倒數多加 1 分鐘', 't-pause': '暫停或繼續倒數', 't-x': '關閉這個計時器', timer: '開始這個步驟的倒數計時', 'tr-draft': '用 Google 翻譯填入空白的越南文欄位', uncheck: '清除所有已勾選的食材', wake: '烹調時保持螢幕不關閉', wipe: '清除這台裝置的全部資料',
@@ -3528,6 +3561,11 @@
     ensureAudio();
     switch (act) {
       case 'cat': listFilter.cat = el.dataset.v; $$('#cats .chip').forEach(c => c.classList.toggle('on', c === el)); updateList(); break;
+      case 'cat-photo-rm': {
+        const c = listFilter.cat;
+        if (c && await confirmBox('移除封面', `確定要移除「${c}」的封面照片嗎？食譜的照片不受影響。`, '移除', true)) { setCatPhoto(c, ''); render(); }
+        break;
+      }
       case 'seed': seed(); break;
       case 'mult': setMult(+el.dataset.v); { const mi = $('#mult'); if (mi) mi.value = multText(vs(route.id).mult); } break;
       case 'check': { const s = vs(route.id).checked; el.checked ? s.add(el.dataset.i) : s.delete(el.dataset.i); el.closest('tr').classList.toggle('done', el.checked); break; }
@@ -3947,6 +3985,10 @@
       db.settings.unitMode = t.value; persist();
       $$('[data-act-change="unitmode"]').forEach(s => { s.value = t.value; });
       updateRecipeComputed(); updatePlanTotal(); updateCheat();
+    } else if (act === 'cat-photo' && t.files[0]) {
+      const c = listFilter.cat, file = t.files[0];
+      t.value = '';
+      try { if (c) { setCatPhoto(c, await resizeImage(file, 1200)); render(); toast(`已設定「${c}」的封面照片`); } } catch (err) { toast(err.message, 'err'); }
     } else if (act === 'photo' && t.files[0]) {
       try { draft.r.photo = await resizeImage(t.files[0]); draft.dirty = true; rerenderEdit(); } catch (err) { toast(err.message, 'err'); }
     } else if (act === 'ring-tone') {
