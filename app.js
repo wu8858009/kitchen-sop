@@ -2,7 +2,7 @@
 (() => {
   'use strict';
   const U = window.KUnits;
-  const APP_VERSION = '2.11.0';
+  const APP_VERSION = '2.12.0';
   const IS_DESKTOP = /[?&]desktop=1\b/.test(location.search);
 
   const $ = (s, el = document) => el.querySelector(s);
@@ -142,6 +142,7 @@
         id: String(i.id || uid()), group: String(i.group || ''), name: String(i.name || ''),
         qty: num(i.qty), unit: String(i.unit || ''), note: String(i.note || ''),
         groupVi: String(i.groupVi || ''), nameVi: String(i.nameVi || ''), noteVi: String(i.noteVi || ''),
+        ...splitPhoto(i),
       })),
       steps: (Array.isArray(r.steps) ? r.steps : []).map(s => ({
         id: String(s.id || uid()), text: String(s.text || ''), minutes: num(s.minutes), key: !!s.key, textVi: String(s.textVi || ''),
@@ -577,10 +578,10 @@
     let html = '<table class="ing-table"><tbody>', lastGroup = null;
     for (const i of r.ingredients) {
       if (i.group.trim() !== (lastGroup || '') && (i.group.trim() || lastGroup) && !(isHead(i) && !i.group.trim())) { // 小標題本身就是分段，不再加「其他」
-        html += `<tr class="grp"><td colspan="6">${esc(i.group.trim() || '其他')}</td></tr>`;
+        html += `<tr class="grp"><td colspan="7">${esc(i.group.trim() || '其他')}</td></tr>`;
       }
       lastGroup = i.group.trim();
-      if (isHead(i)) { html += `<tr class="grp sub"><td colspan="6">${esc(i.name)}</td></tr>`; continue; }
+      if (isHead(i)) { html += `<tr class="grp sub"><td colspan="7">${esc(i.name)}</td></tr>`; continue; }
       const q = i.qty == null ? null : i.qty * mult;
       const d = U.display(q, i.unit, mode);
       const c = costOf(pm, i.name, q, i.unit);
@@ -590,6 +591,8 @@
         <td class="nm">${esc(i.name)}${i.note ? `<div class="note">${esc(i.note)}</div>` : ''}</td>
         <td class="amt"><b>${esc(d.text)}</b>${d.alt ? `<div class="alt">${esc(d.alt)}</div>` : ''}</td>
         <td class="base">${mult !== 1 && i.qty != null ? `原 ${esc(fmt(i.qty) + ' ' + i.unit)}` : ''}</td>
+        <td class="ph">${i.photo ? `<img class="ing-ph" src="${i.photo}" alt="${esc(i.name)}" data-ing="${esc(i.id)}">`
+          : `<label class="ing-ph add no-print" title="幫「${esc(i.name)}」加照片">📷<input type="file" accept="image/*" data-act-change="ing-photo" data-i="${esc(i.id)}" hidden></label>`}</td>
         <td class="cost">${costCell(c)}</td>
         <td class="act no-print">${i.qty ? `<button class="icon" data-act="anchor" data-i="${esc(i.id)}" title="以這個食材現有的量換算倍數">⚖</button>` : ''}</td>
       </tr>`;
@@ -1089,7 +1092,7 @@
   const LABEL_DOTS = 8;                       // 203 dpi ≒ 每公釐 8 點
   const LABEL_MAX_W = 72;                     // B3S 列印頭 576 點 = 72 公釐
   const LABEL_SITE = 'https://wu8858009.github.io/kitchen-sop/';
-  const NIIM_LIB = 'vendor/niimbluelib.min.js?v=55';
+  const NIIM_LIB = 'vendor/niimbluelib.min.js?v=56';
   const labelForm = { name: '', qty: '', note: '', made: null, exp: '' };   // made：null = 今天，'' = 不印
   let niim = null;                            // 已連線的印表機
   let labelQ = '';                            // 已儲存標籤的搜尋字
@@ -3204,7 +3207,8 @@
     const ref = p => { const h = p ? hashStr(p) : ''; if (h) photos[h] = p; return h; };
     const recipes = db.recipes.map(r => {
       const { photo, photoBad, ...rest } = r;
-      return { ...rest, photoHash: ref(photo || photoBad) };
+      const ingredients = r.ingredients.map(({ photo: p, photoBad: pb, ...i }) => ({ ...i, photoHash: ref(p || pb) }));
+      return { ...rest, ingredients, photoHash: ref(photo || photoBad) };
     });
     const sops = db.sops.map(o => {
       const { photo, photoBad, ...rest } = o;
@@ -3264,6 +3268,10 @@
     }
     return n;
   }
+  function keepIngPhotos(list) {
+    const m = new Map(db.recipes.flatMap(r => r.ingredients.filter(i => i.photo).map(i => [i.id, i.photo])));
+    for (const r of list) for (const i of r.ingredients) if (!i.photo && m.has(i.id)) { i.photo = m.get(i.id); i.photoBad = ''; }
+  }
   function keepGoodCat(list) {
     let n = 0;
     for (const x of list) { const o = db.catPhotos.find(y => y.cat === x.cat); if (x.photoBad && o && o.photo) { x.photo = o.photo; x.photoBad = ''; n++; } }
@@ -3271,7 +3279,7 @@
   }
   function canFixPhotos(bad) {
     if (!bad || !bad.length) return false;
-    const mine = new Set([...db.recipes, ...db.sops, ...db.catPhotos].filter(x => x.photo).map(x => hashStr(x.photo)));
+    const mine = new Set([...db.recipes, ...db.sops, ...db.catPhotos, ...db.recipes.flatMap(r => r.ingredients)].filter(x => x.photo).map(x => hashStr(x.photo)));
     return bad.some(h => mine.has(h));
   }
   function applyRemote(L, merge) {
@@ -3279,6 +3287,7 @@
     if (!Array.isArray(L.db && L.db.sops)) remote.sops = db.sops; // 舊版後端沒有 SOP：保留本機的
     if (!(L.db && L.db.inv)) remote.inv = db.inv;                  // 舊版後端沒有盤點訂貨：保留本機的
     if (!Array.isArray(L.db && L.db.catPhotos)) remote.catPhotos = db.catPhotos; // 舊版後端沒有分類封面：保留本機的
+    if (!L.ingPhotos) keepIngPhotos(remote.recipes);                // 舊版後端不存食材照片：保留本機的
     const healed = keepGoodPhotos(remote.recipes, db.recipes) + keepGoodPhotos(remote.sops, db.sops) + keepGoodCat(remote.catPhotos) > 0;
     const sync = { ...db.sync, rev: L.rev, photos: L.photoHashes || db.sync.photos };
     if (merge) { db = mergeDb(db, remote); db.sync = { ...sync, dirty: true }; }
@@ -3403,14 +3412,16 @@
   document.addEventListener('click', e => { if (e.target.matches && e.target.matches('[data-cheat-back]')) closeCheatEditor(); });
   // ---------------------------------------------------------------- 點圖片放大
   // 獨立於 #modal，編輯視窗裡點開再關掉也不會影響視窗內容；列表縮圖在連結裡，點了是進食譜，不放大
-  const ZOOM_IMG = '.cc-photo, .hero-img, .photo-row img, .cat-cover img';
+  const ZOOM_IMG = '.cc-photo, .hero-img, .photo-row img, .cat-cover img, .ing-ph[src]';
   const zoomBox = document.createElement('div');
   zoomBox.id = 'zoom'; zoomBox.className = 'no-print'; zoomBox.setAttribute('role', 'dialog'); zoomBox.setAttribute('aria-label', '放大的照片');
-  zoomBox.innerHTML = '<img alt=""><button class="icon zoom-x" aria-label="關閉">✕</button><button class="btn zoom-dl">⬇ 下載照片</button>';
+  zoomBox.innerHTML = '<img alt=""><button class="icon zoom-x" aria-label="關閉">✕</button><div class="zoom-bar"><label class="btn zoom-ing">📷 更換照片<input type="file" accept="image/*" data-act-change="ing-photo" hidden></label><button class="btn zoom-ing zoom-rm">移除照片</button><button class="btn zoom-dl">⬇ 下載照片</button></div>';
   document.body.appendChild(zoomBox);
   const zoomClose = () => { zoomBox.classList.remove('show'); zoomBox.firstChild.removeAttribute('src'); };
   zoomBox.addEventListener('click', e => {
     if (e.target.closest('.zoom-dl')) { e.stopPropagation(); savePhoto(zoomBox.firstChild.src, zoomBox.dataset.name); return; }
+    if (e.target.closest('label.zoom-ing')) { e.stopPropagation(); return; }
+    if (e.target.closest('.zoom-rm')) { e.stopPropagation(); const iid = zoomBox.dataset.ing; zoomClose(); removeIngPhoto(iid); return; }
     zoomClose();
   });
   document.addEventListener('click', e => {
@@ -3418,6 +3429,8 @@
     if (!img || zoomBox.contains(img)) return;
     zoomBox.firstChild.src = img.src;
     zoomBox.dataset.name = img.alt || '照片';
+    zoomBox.dataset.ing = img.dataset.ing || '';
+    zoomBox.classList.toggle('ing', !!img.dataset.ing);
     zoomBox.classList.add('show');
   });
   // 照片按右鍵：放大或下載（電腦版視窗沒有瀏覽器的另存圖片）
@@ -3451,6 +3464,17 @@
   window.addEventListener('scroll', menuClose, true);
   window.addEventListener('blur', menuClose);
   // 存下 App 裡保存的那張照片（上傳時已縮到長邊 800 像素）
+  const findIng = iid => { for (const r of db.recipes) { const i = r.ingredients.find(x => x.id === iid); if (i) return [r, i]; } return []; };
+  async function setIngPhoto(iid, file) {
+    const [r, i] = findIng(iid);
+    if (!i) return;
+    try { i.photo = await resizeImage(file); i.photoBad = ''; r.updatedAt = Date.now(); persist(); updateRecipeComputed(); toast(`已設定「${i.name}」的照片`); } catch (err) { toast(err.message, 'err'); }
+  }
+  async function removeIngPhoto(iid) {
+    const [r, i] = findIng(iid);
+    if (!i || !await confirmBox('移除照片', `確定要移除「${i.name}」的照片嗎？`, '移除', true)) return;
+    i.photo = ''; i.photoBad = ''; r.updatedAt = Date.now(); persist(); updateRecipeComputed();
+  }
   async function savePhoto(src, title) {
     const ext = /^data:image\/png/.test(src) ? 'png' : 'jpg';
     const name = `${title}.${ext}`.replace(/[\\/:*?"<>|]/g, '_');
@@ -3985,6 +4009,11 @@
       db.settings.unitMode = t.value; persist();
       $$('[data-act-change="unitmode"]').forEach(s => { s.value = t.value; });
       updateRecipeComputed(); updatePlanTotal(); updateCheat();
+    } else if (act === 'ing-photo' && t.files[0]) {
+      const file = t.files[0], iid = t.dataset.i || zoomBox.dataset.ing;
+      t.value = '';
+      if (zoomBox.contains(t)) zoomClose();
+      setIngPhoto(iid, file);
     } else if (act === 'cat-photo' && t.files[0]) {
       const c = listFilter.cat, file = t.files[0];
       t.value = '';
