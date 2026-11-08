@@ -2,7 +2,7 @@
 (() => {
   'use strict';
   const U = window.KUnits;
-  const APP_VERSION = '2.10.2';
+  const APP_VERSION = '2.10.3';
   const IS_DESKTOP = /[?&]desktop=1\b/.test(location.search);
 
   const $ = (s, el = document) => el.querySelector(s);
@@ -1063,7 +1063,7 @@
   const LABEL_DOTS = 8;                       // 203 dpi ≒ 每公釐 8 點
   const LABEL_MAX_W = 72;                     // B3S 列印頭 576 點 = 72 公釐
   const LABEL_SITE = 'https://wu8858009.github.io/kitchen-sop/';
-  const NIIM_LIB = 'vendor/niimbluelib.min.js?v=51';
+  const NIIM_LIB = 'vendor/niimbluelib.min.js?v=52';
   const labelForm = { name: '', qty: '', note: '', made: null, exp: '' };   // made：null = 今天，'' = 不印
   let niim = null;                            // 已連線的印表機
   let labelQ = '';                            // 已儲存標籤的搜尋字
@@ -2051,21 +2051,28 @@
     return invMass(x) ? p.qty / invMass(x) : p.qty;
   }
   /** 建議叫貨量（品項單位）＝ 隔天預估營業額 ÷ 1 萬 × 萬元使用量 − 庫存；公斤、斤取到 0.5，包、盒取整數；資料不夠時回傳 '' */
-  function invSug(wk, x, i) {
+  function invCalc(wk, x, i) {
     const wan = num(x.wan), stock = invStock(x, invRow(wk, x.id)[i * 2]);
-    if (!(wan > 0) || stock == null) return '';
+    if (!(wan > 0) || stock == null) return null;
     const [nw, ni] = i < 6 ? [wk, i + 1] : [ymd(invDate(wk, 7)), 0];
     const rev = num(invRow(nw, '_rev')[ni * 2]);
-    if (!(rev > 0)) return '';
-    const step = invMass(x) ? 2 : 1;
-    return U.fmtNum(Math.max(0, Math.ceil((rev / 10000 * wan - stock) * step - 1e-9) / step));
+    if (!(rev > 0)) return null;
+    const step = invMass(x) ? 2 : 1, need = rev / 10000 * wan;
+    return { rev, stock, need, sug: U.fmtNum(Math.max(0, Math.ceil((need - stock) * step - 1e-9) / step)) };
+  }
+  const invSug = (wk, x, i) => { const c = invCalc(wk, x, i); return c ? c.sug : ''; };
+  // 訂貨格的灰字與滑鼠說明：庫存夠就寫「夠用」，並列出算式
+  function invHint(wk, x, i) {
+    const c = invCalc(wk, x, i), f = n => U.fmtNum(+n.toFixed(2));
+    if (!c) return { ph: '', tip: num(x.wan) > 0 ? '填好盤點量和隔天的預估營業額，就會算出建議量' : '在「編輯品項」填萬元使用量，就會算出建議量' };
+    return { ph: c.sug === '0' ? '夠用' : c.sug, tip: `隔天預估 ${f(c.rev)} 元 → 約需 ${f(c.need)} ${x.unit}，庫存 ${f(c.stock)} ${x.unit}，建議叫 ${c.sug} ${x.unit}` };
   }
   // 訂貨量：自己填的優先，沒填就用建議量（0 不算）
   const invOrd = (wk, x, i) => { const v = (invRow(wk, x.id)[i * 2 + 1] || '').trim(), s = invSug(wk, x, i); return v || (s && s !== '0' ? s : ''); };
   function invRefreshSug() {
     $$('#app input[data-inv]').forEach(el => {
       const [id, k] = el.dataset.inv.split('.'), x = db.inv.items.find(y => y.id === id);
-      if (x && +k % 2) el.placeholder = invSug(invWeek, x, (+k - 1) / 2);
+      if (x && +k % 2) { const h = invHint(invWeek, x, (+k - 1) / 2); el.placeholder = h.ph; el.title = h.tip; }
     });
   }
 
@@ -2080,7 +2087,7 @@
     const rows = items.map(x => {
       const a = invRow(invWeek, x.id);
       return `<tr><th class="nm">${esc(x.name)}</th><td class="code"><input data-inv="${esc(x.id)}.c" value="${esc(x.code)}" autocomplete="off" placeholder="—" aria-label="${esc(x.name)} 品號"></td><td class="u">${esc(x.unit)}</td>${days.map(i => [0, 1].map(j =>
-        `<td class="${i === td ? 'today' : ''} ${j ? 'ord' : ''}"><input data-inv="${esc(x.id)}.${i * 2 + j}" value="${esc(a[i * 2 + j] || '')}"${j ? ` placeholder="${invSug(invWeek, x, i)}"` : ''} inputmode="decimal" autocomplete="off" aria-label="${esc(x.name)} 星期${INV_DAYS[i]}${j ? '訂貨' : '盤點'}"></td>`).join('')).join('')}</tr>`;
+        `<td class="${i === td ? 'today' : ''} ${j ? 'ord' : ''}"><input data-inv="${esc(x.id)}.${i * 2 + j}" value="${esc(a[i * 2 + j] || '')}"${j ? (h => ` placeholder="${h.ph}" title="${esc(h.tip)}"`)(invHint(invWeek, x, i)) : ''} inputmode="decimal" autocomplete="off" aria-label="${esc(x.name)} 星期${INV_DAYS[i]}${j ? '訂貨' : '盤點'}"></td>`).join('')).join('')}</tr>`;
     }).join('');
     return `<div class="page inv-page">
       <div class="page-head no-print"><h1 class="head-title">盤點訂貨</h1><div class="spacer"></div>
