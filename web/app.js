@@ -2,7 +2,7 @@
 (() => {
   'use strict';
   const U = window.KUnits;
-  const APP_VERSION = '2.12.3';
+  const APP_VERSION = '2.12.4';
   const IS_DESKTOP = /[?&]desktop=1\b/.test(location.search);
 
   const $ = (s, el = document) => el.querySelector(s);
@@ -434,7 +434,7 @@
       case 'cheat': app.innerHTML = viewCheat(); updateCheat(); break;
       case 'sops': app.innerHTML = viewSops(); updateSopList(); break;
       case 'sop': app.innerHTML = viewSop(route.id); updateSopCalc(); break;
-      case 'inv': app.innerHTML = viewInv(); fitInv(); break;
+      case 'inv': app.innerHTML = viewInv(); fitInv(); invToToday(); break;
       case 'prices': app.innerHTML = viewPrices(); break;
       case 'labels': app.innerHTML = viewLabels(); updateLabel(); break;
       case 'settings': app.innerHTML = viewSettings(); fillSettingsInfo(); setSync(cloudState.s, cloudState.msg); break;
@@ -1096,7 +1096,7 @@
   const LABEL_DOTS = 8;                       // 203 dpi ≒ 每公釐 8 點
   const LABEL_MAX_W = 72;                     // B3S 列印頭 576 點 = 72 公釐
   const LABEL_SITE = 'https://wu8858009.github.io/kitchen-sop/';
-  const NIIM_LIB = 'vendor/niimbluelib.min.js?v=59';
+  const NIIM_LIB = 'vendor/niimbluelib.min.js?v=60';
   const labelForm = { name: '', qty: '', note: '', made: null, exp: '' };   // made：null = 今天，'' = 不印
   let niim = null;                            // 已連線的印表機
   let labelQ = '';                            // 已儲存標籤的搜尋字
@@ -2075,6 +2075,9 @@
   const invDate = (wk, i) => { const [y, m, d] = wk.split('-').map(Number); return new Date(y, m - 1, d + i); };
   const mdOf = d => `${d.getMonth() + 1}/${d.getDate()}`;
   let invWeek = weekOf(new Date());
+  // 手機排版：拿掉品號、單位兩欄（單位和品號改寫在品名下面），單日一畫面看完不用橫向捲動
+  const invPhone = window.matchMedia('(max-width: 719px)');
+  invPhone.addEventListener('change', () => { if (route.name === 'inv') render(); });
   let invDay = (() => { try { const v = localStorage.getItem('ksop.invDay'); if (v != null) return +v; } catch (e) { /* 無法存取 */ } return IS_MOBILE ? -2 : -1; })(); // -1 整週、-2 今天、0~6
   const invDayNow = () => (invDay === -2 ? (invWeek === weekOf(new Date()) ? (new Date().getDay() + 6) % 7 : 0) : invDay);
   const invRow = (wk, id) => ((db.inv.weeks[wk] || {})[id] || { a: [] }).a;
@@ -2115,14 +2118,16 @@
   function viewInv() {
     const today = new Date(), thisWeek = weekOf(today), td = invWeek === thisWeek ? (today.getDay() + 6) % 7 : -1;
     const day = invDayNow(), days = day < 0 ? [0, 1, 2, 3, 4, 5, 6] : [day];
-    const items = db.inv.items.filter(invOn);
+    const items = db.inv.items.filter(invOn), ph = invPhone.matches;
     const head = days.map(i => `<th colspan="2" class="${i === td ? 'today' : ''}">星期${INV_DAYS[i]}<small>${mdOf(invDate(invWeek, i))}</small></th>`).join('');
     const sub = days.map(i => `<th class="${i === td ? 'today' : ''}">盤點</th><th class="${i === td ? 'today' : ''}">訂貨</th>`).join('');
     const revA = invRow(invWeek, '_rev');
     const rev = days.map(i => `<th colspan="2" class="${i === td ? 'today' : ''}"><input data-inv="_rev.${i * 2}" value="${esc(revA[i * 2] || '')}" inputmode="decimal" autocomplete="off" placeholder="營業額" aria-label="星期${INV_DAYS[i]}預估營業額"></th>`).join('');
     const rows = items.map(x => {
       const a = invRow(invWeek, x.id);
-      return `<tr><th class="nm">${esc(x.name)}</th><td class="code"><input data-inv="${esc(x.id)}.c" value="${esc(x.code)}" autocomplete="off" placeholder="—" aria-label="${esc(x.name)} 品號"></td><td class="u">${esc(x.unit)}</td>${days.map(i => [0, 1].map(j =>
+      const side = ph ? `<th class="nm">${esc(x.name)}<small>${[x.unit, x.code].filter(Boolean).map(esc).join(' · ')}</small></th>`
+        : `<th class="nm">${esc(x.name)}</th><td class="code"><input data-inv="${esc(x.id)}.c" value="${esc(x.code)}" autocomplete="off" placeholder="—" aria-label="${esc(x.name)} 品號"></td><td class="u">${esc(x.unit)}</td>`;
+      return `<tr>${side}${days.map(i => [0, 1].map(j =>
         `<td class="${i === td ? 'today' : ''} ${j ? 'ord' : ''}"><input data-inv="${esc(x.id)}.${i * 2 + j}" value="${esc(a[i * 2 + j] || '')}"${j ? (h => ` placeholder="${h.ph}" title="${esc(h.tip)}"`)(invHint(invWeek, x, i)) : ''} inputmode="decimal" autocomplete="off" aria-label="${esc(x.name)} 星期${INV_DAYS[i]}${j ? '訂貨' : '盤點'}"></td>`).join('')).join('')}</tr>`;
     }).join('');
     return `<div class="page inv-page">
@@ -2132,16 +2137,17 @@
         <button class="btn" data-act="inv-print">🖨 列印</button></div>
       <div class="inv-bar no-print">
         <button class="btn" data-act="inv-week" data-d="-1" title="上一週">‹</button>
-        <b>${mdOf(invDate(invWeek, 0))}（一）～ ${mdOf(invDate(invWeek, 6))}（日）</b>
+        <b>${ph ? `${mdOf(invDate(invWeek, 0))} ～ ${mdOf(invDate(invWeek, 6))}` : `${mdOf(invDate(invWeek, 0))}（一）～ ${mdOf(invDate(invWeek, 6))}（日）`}</b>
         <button class="btn" data-act="inv-week" data-d="1" title="下一週">›</button>
         ${invWeek !== thisWeek ? '<button class="btn ghost" data-act="inv-week" data-d="0">回本週</button>' : ''}
       </div>
-      <div class="chips no-print">${[[-2, '今天'], [-1, '整週'], ...INV_DAYS.map((d, i) => [i, d])].map(([v, l]) => `<button class="chip ${invDay === v ? 'on' : ''}" data-act="inv-day" data-v="${v}">${l}</button>`).join('')}</div>
+      <div class="chips inv-days no-print">${[[-2, '今天'], [-1, '整週'], ...INV_DAYS.map((d, i) => [i, d])].map(([v, l]) => `<button class="chip ${invDay === v ? 'on' : ''} ${v === td ? 'now' : ''}" data-act="inv-day" data-v="${v}">${l}${ph && v >= 0 ? `<small>${mdOf(invDate(invWeek, v))}</small>` : ''}</button>`).join('')}</div>
       ${items.length ? `<div class="inv-wrap no-print"><table class="inv-table ${day < 0 ? 'week' : 'one'}">
-        <thead><tr class="rev"><th colspan="3" class="nm">預估營業額（元）</th>${rev}</tr>
-        <tr class="days"><th rowspan="2" class="nm">材料名稱</th><th rowspan="2" class="code">品號</th><th rowspan="2" class="u">單位</th>${head}</tr><tr class="sub">${sub}</tr></thead>
+        ${ph && day >= 0 ? '<colgroup><col><col class="v"><col class="v"></colgroup>' : ''}
+        <thead><tr class="rev"><th ${ph ? '' : 'colspan="3"'} class="nm">${ph ? (day < 0 ? '營業額' : '預估營業額') : '預估營業額（元）'}</th>${rev}</tr>
+        ${ph && day >= 0 ? `<tr class="sub"><th class="nm">材料</th>${sub}</tr>` : `<tr class="days"><th rowspan="2" class="nm">材料${ph ? '' : '名稱'}</th>${ph ? '' : '<th rowspan="2" class="code">品號</th><th rowspan="2" class="u">單位</th>'}${head}</tr><tr class="sub">${sub}</tr>`}</thead>
         <tbody>${rows}</tbody></table></div>
-        <p class="hint no-print">輸入後自動儲存；按 Enter 跳到下一個品項。公斤、斤的品項盤點填克數（也可寫「3斤」），包、盒等填幾包。訂貨格會用<b class="sug-c">橘色</b>顯示建議量：隔天預估營業額 ÷ 1 萬 × 萬元使用量 − 庫存。萬元使用量在「編輯品項」填（照品項單位，和叫貨系統報表相同）；自己輸入訂貨量就以你填的為準。</p>`
+        ${(h => (ph ? `<details class="hint no-print"><summary>填寫說明</summary>${h}</details>` : `<p class="hint no-print">${h}</p>`))('輸入後自動儲存；按 Enter 跳到下一個品項。公斤、斤的品項盤點填克數（也可寫「3斤」），包、盒等填幾包。訂貨格會用<b class="sug-c">橘色</b>顯示建議量：隔天預估營業額 ÷ 1 萬 × 萬元使用量 − 庫存。萬元使用量在「編輯品項」填（照品項單位，和叫貨系統報表相同）；自己輸入訂貨量就以你填的為準。')}`
         : '<div class="empty no-print"><p>還沒有品項。</p><button class="btn primary" data-act="inv-items">＋ 加入品項</button></div>'}
       <div class="print-only" id="invPrint"></div>
     </div>`;
@@ -2203,6 +2209,11 @@
     w.style.maxHeight = Math.max(240, window.innerHeight - (w.getBoundingClientRect().top + window.scrollY) - nav - 16) + 'px';
   }
   window.addEventListener('resize', fitInv);
+  // 手機看整週時，一打開就捲到今天那一欄
+  function invToToday() {
+    const w = $('.inv-wrap'), c = $('.inv-table.week thead th.today');
+    if (w && c && invPhone.matches) w.scrollLeft += c.getBoundingClientRect().left - $('.inv-table .nm').getBoundingClientRect().right;
+  }
 
   // 品項編輯：仿叫貨系統的表格（# 品號 品名 規格 單位名稱 單價 暫不供貨 已停用）；可從 Excel／叫貨系統複製多列貼上
   const invOn = x => !x.off && !x.stop;
