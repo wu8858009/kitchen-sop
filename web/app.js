@@ -2,7 +2,7 @@
 (() => {
   'use strict';
   const U = window.KUnits;
-  const APP_VERSION = '2.12.5';
+  const APP_VERSION = '2.12.6';
   const IS_DESKTOP = /[?&]desktop=1\b/.test(location.search);
 
   const $ = (s, el = document) => el.querySelector(s);
@@ -419,7 +419,7 @@
     if (!isEditHash(location.hash)) draft = null;
     lastHash = location.hash;
     render();
-    window.scrollTo(0, 0);
+    scrollBox().scrollTop = 0;
   }
 
   function render() {
@@ -868,9 +868,9 @@
   }
 
   function rerenderEdit(focusSel) {
-    const y = window.scrollY;
+    const y = scrollBox().scrollTop;
     $('#app').innerHTML = viewEdit(draft.isNew ? null : draft.key);
-    window.scrollTo(0, y);
+    scrollBox().scrollTop = y;
     if (focusSel) { const f = $(focusSel); if (f) f.focus(); }
   }
 
@@ -1096,7 +1096,7 @@
   const LABEL_DOTS = 8;                       // 203 dpi ≒ 每公釐 8 點
   const LABEL_MAX_W = 72;                     // B3S 列印頭 576 點 = 72 公釐
   const LABEL_SITE = 'https://wu8858009.github.io/kitchen-sop/';
-  const NIIM_LIB = 'vendor/niimbluelib.min.js?v=61';
+  const NIIM_LIB = 'vendor/niimbluelib.min.js?v=62';
   const labelForm = { name: '', qty: '', note: '', made: null, exp: '' };   // made：null = 今天，'' = 不印
   let niim = null;                            // 已連線的印表機
   let labelQ = '';                            // 已儲存標籤的搜尋字
@@ -1566,7 +1566,7 @@
       box.innerHTML = cheatItemsHtml();
       if (focusLastNote) { const t = $$('#cheatItems [data-cheat-note][data-f="title"]').pop(); if (t) t.focus(); }
     }
-    if (route.name === 'cheat') { const y = window.scrollY; render(); window.scrollTo(0, y); }
+    if (route.name === 'cheat') { const y = scrollBox().scrollTop; render(); scrollBox().scrollTop = y; }
   }
 
   // 換照片後清單高度會變，留在原本捲動的位置
@@ -1617,7 +1617,7 @@
     const move = ev => {
       const sc = box.closest('.cm-scroll'); // 彈跳視窗裡捲動清單本身
       if (sc) { const b = sc.getBoundingClientRect(); if (ev.clientY < b.top + 40) sc.scrollTop -= 12; else if (ev.clientY > b.bottom - 40) sc.scrollTop += 12; }
-      else { const edge = 60, h = window.innerHeight; if (ev.clientY < edge) window.scrollBy(0, -12); else if (ev.clientY > h - edge) window.scrollBy(0, 12); }
+      else { const edge = 60, h = window.innerHeight; if (ev.clientY < edge) scrollBox().scrollTop -= 12; else if (ev.clientY > h - edge) scrollBox().scrollTop += 12; }
       const el = document.elementFromPoint(ev.clientX, ev.clientY);
       const over = el && el.closest(sel);
       if (!over || over === item || !box.contains(over)) return;
@@ -2076,8 +2076,9 @@
   const mdOf = d => `${d.getMonth() + 1}/${d.getDate()}`;
   let invWeek = weekOf(new Date());
   // 手機排版：拿掉品號、單位兩欄（單位和品號改寫在品名下面），單日一畫面看完不用橫向捲動
-  const invPhone = window.matchMedia('(max-width: 719px)');
-  invPhone.addEventListener('change', () => { if (route.name === 'inv') render(); });
+  const phoneMq = window.matchMedia('(max-width: 719px)');
+  const scrollBox = () => (phoneMq.matches ? $('#app') : document.scrollingElement); // 手機只捲內容區，導覽列才不會跟著動
+  phoneMq.addEventListener('change', () => { if (route.name === 'inv') render(); });
   let invDay = (() => { try { const v = localStorage.getItem('ksop.invDay'); if (v != null) return +v; } catch (e) { /* 無法存取 */ } return IS_MOBILE ? -2 : -1; })(); // -1 整週、-2 今天、0~6
   const invDayNow = () => (invDay === -2 ? (invWeek === weekOf(new Date()) ? (new Date().getDay() + 6) % 7 : 0) : invDay);
   const invRow = (wk, id) => ((db.inv.weeks[wk] || {})[id] || { a: [] }).a;
@@ -2118,7 +2119,7 @@
   function viewInv() {
     const today = new Date(), thisWeek = weekOf(today), td = invWeek === thisWeek ? (today.getDay() + 6) % 7 : -1;
     const day = invDayNow(), days = day < 0 ? [0, 1, 2, 3, 4, 5, 6] : [day];
-    const items = db.inv.items.filter(invOn), ph = invPhone.matches;
+    const items = db.inv.items.filter(invOn), ph = phoneMq.matches;
     const head = days.map(i => `<th colspan="2" class="${i === td ? 'today' : ''}">星期${INV_DAYS[i]}<small>${mdOf(invDate(invWeek, i))}</small></th>`).join('');
     const sub = days.map(i => `<th class="${i === td ? 'today' : ''}">盤點</th><th class="${i === td ? 'today' : ''}">訂貨</th>`).join('');
     const revA = invRow(invWeek, '_rev');
@@ -2206,7 +2207,7 @@
     const w = $('.inv-wrap'), t = $('.tabs');
     if (!w) return;
     const nav = getComputedStyle(t).position === 'fixed' ? t.offsetHeight : 0;
-    w.style.maxHeight = Math.max(240, window.innerHeight - (w.getBoundingClientRect().top + window.scrollY) - nav - 16) + 'px';
+    w.style.maxHeight = Math.max(240, window.innerHeight - (w.getBoundingClientRect().top + scrollBox().scrollTop) - nav - 16) + 'px';
   }
   window.addEventListener('resize', fitInv);
   // 手機上說明文字只留一行，點一下展開
@@ -2214,7 +2215,7 @@
   // 手機看整週時，一打開就捲到今天那一欄
   function invToToday() {
     const w = $('.inv-wrap'), c = $('.inv-table.week thead th.today');
-    if (w && c && invPhone.matches) w.scrollLeft += c.getBoundingClientRect().left - $('.inv-table .nm').getBoundingClientRect().right;
+    if (w && c && phoneMq.matches) w.scrollLeft += c.getBoundingClientRect().left - $('.inv-table .nm').getBoundingClientRect().right;
   }
 
   // 品項編輯：仿叫貨系統的表格（# 品號 品名 規格 單位名稱 單價 暫不供貨 已停用）；可從 Excel／叫貨系統複製多列貼上
@@ -3320,9 +3321,9 @@
     if (route.name === 'edit' || route.name === 'new') return; // 編輯中不打斷，儲存時會再合併
     const a = document.activeElement;
     if (a && $('#app').contains(a) && /INPUT|TEXTAREA|SELECT/.test(a.tagName)) return;
-    const y = window.scrollY;
+    const y = scrollBox().scrollTop;
     render();
-    window.scrollTo(0, y);
+    scrollBox().scrollTop = y;
   }
 
   function setSync(s, msg = '') {
@@ -3807,7 +3808,7 @@
       case 'label-print': await labelPrint(); break;
       case 'label-png': await labelPng(); break;
       case 'label-save': await labelSave(); break;
-      case 'label-load': labelLoad(el.dataset.id); window.scrollTo(0, 0); break;
+      case 'label-load': labelLoad(el.dataset.id); scrollBox().scrollTop = 0; break;
       case 'label-rm': {
         const c = labelCfg(), x = c.saved.find(y => y.id === el.dataset.id);
         if (x && await confirmBox('刪除標籤', `確定要刪除「${x.name}」嗎？`, '刪除', true)) { c.saved = c.saved.filter(y => y !== x); db.deleted[x.id] = Date.now(); persist(); render(); }
