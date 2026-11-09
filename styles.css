@@ -716,6 +716,13 @@ select { max-width: 100%; }
 }
 /* 全站手機排版：上方精簡、按鈕等寬、不用左右滑 */
 @media screen and (max-width: 719px) {
+  /* 整頁不捲動、只捲內容區：滑到最底時導覽列不會跟著晃動 */
+  html, body { height: 100%; overflow: hidden; overscroll-behavior: none; }
+  body, body.has-timers { position: fixed; inset: 0; display: flex; flex-direction: column; padding-bottom: 0; }
+  .topbar { position: relative; flex: none; }
+  #app { flex: 1 1 0; min-height: 0; overflow: hidden auto; -webkit-overflow-scrolling: touch; overscroll-behavior: contain; padding-bottom: calc(var(--nav-h) + env(safe-area-inset-bottom)); }
+  body.has-timers #app { padding-bottom: calc(var(--nav-h) + 120px + env(safe-area-inset-bottom)); }
+  .sticky-head { top: 0; }
   .page { padding: 10px 12px; }
   .card { padding: 12px; margin-bottom: 10px; }
   .chips { margin-bottom: 8px; }

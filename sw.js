@@ -1,7 +1,7 @@
 /* 離線快取：頁面網路優先，其他資源快取優先並於背景更新 */
-const CACHE = 'kitchen-sop-v61';
+const CACHE = 'kitchen-sop-v62';
 const ASSETS = [
-  './', 'index.html', 'styles.css?v=61', 'config.js?v=61', 'units.js?v=61', 'vi.js?v=61', 'app.js?v=61', 'vendor/niimbluelib.min.js?v=61', 'manifest.webmanifest',
+  './', 'index.html', 'styles.css?v=62', 'config.js?v=62', 'units.js?v=62', 'vi.js?v=62', 'app.js?v=62', 'vendor/niimbluelib.min.js?v=62', 'manifest.webmanifest',
   'icons/icon.svg', 'icons/icon-192.png', 'icons/icon-512.png', 'icons/apple-touch-icon.png',
 ];
 
