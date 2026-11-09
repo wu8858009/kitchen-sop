@@ -296,6 +296,8 @@ input.big { font-size: 1.3rem; }
 .plan-item .small { white-space: nowrap; }
 .plan-add { display: flex; gap: 8px; }
 .plan-add select { flex: 1; }
+.sched-days .chip small { font-size: inherit; }
+.sched-days .chip i.td { font-style: normal; }
 .sched-days .chip .n { display: inline-block; min-width: 1.4em; padding: 0 5px; margin-left: 2px; border-radius: 99px; background: var(--line); color: var(--fg); font-size: .8em; text-align: center; }
 .sched-days .chip.on .n { background: rgba(255, 255, 255, .3); color: inherit; }
 .sched-items { display: flex; flex-direction: column; margin-bottom: 12px; }
@@ -654,10 +656,6 @@ select { max-width: 100%; }
 .inv-ed td.w-act .icon { padding: 4px 6px; }
 /* 盤點訂貨：手機排版 */
 @media screen and (max-width: 719px) {
-  .inv-page { padding: 10px 12px; }
-  .inv-page .head-title, .inv-page .page-head .spacer { display: none; }
-  .inv-page .page-head { flex-wrap: nowrap; gap: 6px; margin-bottom: 8px; }
-  .inv-page .page-head .btn { flex: 1 1 0; min-width: 0; min-height: 38px; padding: 0 4px; font-size: .85rem; white-space: nowrap; justify-content: center; }
   .inv-bar { flex-wrap: nowrap; gap: 6px; margin-bottom: 8px; }
   .inv-bar b { flex: 1; text-align: center; white-space: nowrap; font-size: 1rem; }
   .inv-bar .btn { min-height: 38px; padding: 0 14px; white-space: nowrap; }
@@ -715,6 +713,92 @@ select { max-width: 100%; }
   .inv-ed td:nth-child(9)::before { content: "已停用"; }
   .inv-ed td.w-act { display: flex; justify-content: flex-end; align-items: center; white-space: nowrap; }
   .inv-ed td.w-act .icon { padding: 6px 5px; }
+}
+/* 全站手機排版：上方精簡、按鈕等寬、不用左右滑 */
+@media screen and (max-width: 719px) {
+  .page { padding: 10px 12px; }
+  .card { padding: 12px; margin-bottom: 10px; }
+  .chips { margin-bottom: 8px; }
+  .page-head { gap: 6px; margin-bottom: 8px; }
+  .page-head .spacer, .page-head:has(.btn) .head-title { display: none; }
+  .page-head:not(:has(.search)) .btn { flex: 1 1 30%; min-width: 0; min-height: 38px; padding: 0 4px; font-size: .85rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; justify-content: center; text-align: center; }
+  .recipe-page .page-head .btn { flex-basis: 22% !important; }
+  /* 說明文字：只留一行，點一下展開 */
+  .page > p.muted:not(.small), .page p.hint { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 1; overflow: hidden; margin: 0 0 8px; font-size: .82rem; cursor: pointer; }
+  .page > p.muted.open, .page p.hint.open { display: block; }
+  .price-row { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .price-row .up { grid-column: 1 / 3; }
+  .price-row .icon { justify-self: end; }
+  /* 食譜：倍數 */
+  .scale-row { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); gap: 8px; margin-bottom: 8px; }
+  .scale-row .fld:last-child { grid-column: 1 / -1; }
+  .scale-row .fld input, .scale-row .fld select { width: 100%; min-width: 0; }
+  #multChips { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 4px; margin-bottom: 6px; }
+  #multChips .chip { min-width: 0; min-height: 38px; padding: 0; border-radius: 10px; }
+  /* 食譜：食材每列兩行，品名不再被擠成直的 */
+  .ing-table, .ing-table tbody { display: block; }
+  .ing-table tr { display: grid; grid-template-columns: 30px minmax(0, 1fr) auto 50px; column-gap: 8px; align-items: center; padding: 8px 0; border-bottom: 1px solid var(--line); }
+  .ing-table tr:last-child { border-bottom: 0; }
+  .ing-table tr:not(:has(.ph)) { grid-template-columns: 30px minmax(0, 1fr) auto; }
+  .ing-table td { display: block; width: auto !important; padding: 0 !important; border: 0; }
+  .ing-table td.base { display: none; }
+  .ing-table .ck { grid-area: 1 / 1 / 3 / 2; }
+  .ing-table .nm { grid-area: 1 / 2 / 2 / 3; line-height: 1.3; }
+  .ing-table .amt { grid-area: 1 / 3 / 2 / 4; }
+  .ing-table .cost { grid-area: 2 / 2 / 3 / 3; text-align: left; font-size: .8rem; color: var(--muted); }
+  .ing-table .act { grid-area: 2 / 3 / 3 / 4; }
+  .ing-table .act .icon { width: auto; height: 30px; min-width: 36px; min-height: 30px; padding: 0 6px; }
+  .ing-table .ph { grid-area: 1 / 4 / 3 / 5; }
+  .ing-table .ing-ph { width: 50px; height: 50px; }
+  .ing-table tr.grp { display: block; padding: 12px 0 4px; border-bottom: 2px solid var(--accent-soft); }
+  /* 行程：週次兩格、星期七格 */
+  .sched-weeks { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; }
+  .sched-weeks .chip { min-width: 0; padding: 0 4px; font-size: .88rem; }
+  .sched-days { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 3px; }
+  .sched-days .chip { position: relative; min-width: 0; min-height: 44px; padding: 0; border-radius: 10px; font-size: .86rem; line-height: 1.15; }
+  .sched-days .chip i.td { display: none; }
+  .sched-days .chip small { display: block; font-size: .66rem; font-weight: 400; letter-spacing: -.02em; opacity: .8; }
+  .sched-days .chip.now:not(.on) { border-color: var(--accent); color: var(--accent); }
+  .sched-days .chip .n { position: absolute; top: -3px; right: -1px; min-width: 1.4em; margin: 0; padding: 0 3px; font-size: .62rem; line-height: 1.5; background: var(--accent); color: var(--accent-fg); }
+  .sched-days .chip.on .n { background: var(--fg); color: var(--bg); }
+  .sched-item > .pname { order: 1; flex: 1 1 calc(100% - 200px); }
+  .sched-item > .tm { order: 2; width: 108px; }
+  .sched-item > .icon { order: 3; }
+  .sched-item > label, .sched-item > .small, .sched-item > .note { order: 5; }
+  .plan-add { flex-wrap: wrap; }
+  .plan-add select:first-child { flex: 1 1 55%; min-width: 0; }
+  .plan-add select:not(:first-child) { flex: 1 1 100%; }
+  /* 小抄：選項兩欄 */
+  .cheat-opts { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 8px 10px; }
+  .cheat-opts .ck-lbl:nth-child(5), .cheat-opts .fld:last-child { grid-column: 1 / -1; }
+  .cheat-opts .inline-fld { flex-direction: column; align-items: stretch; gap: 2px; margin: 0; }
+  .cheat-opts .inline-fld select { width: 100%; min-width: 0; }
+  /* SOP：食材明細每項一張卡片 */
+  .sop-table-wrap { overflow: visible; margin: 0 0 10px; padding: 0; }
+  .sop-page .sop-table { display: block; min-width: 0; }
+  .sop-page .sop-table thead { display: none; }
+  .sop-page .sop-table tbody { display: grid; gap: 10px; }
+  .sop-page .sop-table tr { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 6px 8px; padding: 10px; border: 1px solid var(--line); border-radius: 10px; }
+  .sop-page .sop-table td { display: block; min-width: 0; padding: 0; border: 0; grid-column: span 3; }
+  .sop-page .sop-table td::before { display: block; margin-bottom: 2px; font-size: .75rem; font-weight: 400; color: var(--muted); }
+  .sop-page .sop-table input { width: 100%; min-width: 0; min-height: 40px; font-size: 16px; text-align: left; }
+  .sop-page .sop-table td.no { grid-column: 1; align-self: end; width: auto; padding-bottom: 10px; }
+  .sop-page .sop-table td:nth-child(2) { grid-column: 2 / -1; }
+  .sop-page .sop-table td:nth-child(n+3):nth-child(-n+8) { grid-column: span 2; }
+  .sop-page .sop-table td.calc { padding: 6px 8px; border-radius: 6px; min-width: 0; text-align: left; }
+  .sop-page .sop-table .pct { display: flex; }
+  .sop-page .sop-table td.row-btns { grid-column: 1 / -1; display: flex; justify-content: flex-end; gap: 4px; }
+  .sop-page .sop-table td:nth-child(2)::before { content: "食材"; }
+  .sop-page .sop-table td:nth-child(3)::before { content: "使用份量"; }
+  .sop-page .sop-table td:nth-child(4)::before { content: "單位"; }
+  .sop-page .sop-table td:nth-child(5)::before { content: "廠商/品牌"; }
+  .sop-page .sop-table td:nth-child(6)::before { content: "規格"; }
+  .sop-page .sop-table td:nth-child(7)::before { content: "單位"; }
+  .sop-page .sop-table td:nth-child(8)::before { content: "進價（未稅）"; }
+  .sop-page .sop-table td:nth-child(9)::before { content: "採購份量"; }
+  .sop-page .sop-table td:nth-child(10)::before { content: "成本"; }
+  .sop-page .sop-table td:nth-child(11)::before { content: "總製成量"; }
+  .sop-page .sop-table td:nth-child(12)::before { content: "耗損"; }
 }
 
 /* 寬螢幕：食譜的食材與步驟並排、設定分兩欄，避免一行拉太長 */
