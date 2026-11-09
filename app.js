@@ -2,7 +2,7 @@
 (() => {
   'use strict';
   const U = window.KUnits;
-  const APP_VERSION = '2.12.4';
+  const APP_VERSION = '2.12.5';
   const IS_DESKTOP = /[?&]desktop=1\b/.test(location.search);
 
   const $ = (s, el = document) => el.querySelector(s);
@@ -999,9 +999,9 @@
         ${list.some(x => x.recipeId) ? '<button class="btn" data-act="sched-to-plan">🧾 帶入備料單</button>' : ''}
         ${list.length ? '<button class="btn" data-act="print">🖨 列印</button>' : ''}</div>
       <p class="muted no-print">設定每週固定要備的菜和時間，每天打開就知道今天要做什麼。勾選做好的項目，下週同一天會重新開始。</p>
-      <div class="chips no-print">${[0, 1].map(w => `<button class="chip ${w === schedWeek ? 'on' : ''}" data-act="sched-week" data-v="${w}">${weekLabel(w)}</button>`).join('')}</div>
+      <div class="chips sched-weeks no-print">${[0, 1].map(w => `<button class="chip ${w === schedWeek ? 'on' : ''}" data-act="sched-week" data-v="${w}">${weekLabel(w)}</button>`).join('')}</div>
       ${schedWeek ? '<p class="muted small no-print">下週沿用每週固定的內容；在這裡新增或修改，每一週都會跟著變，勾選完成則只算這一天。</p>' : ''}
-      <div class="chips sched-days no-print">${WEEK_ORDER.map(i => `<button class="chip ${i === day ? 'on' : ''}" data-act="sched-day" data-v="${i}">${i === today ? '今天 ' : ''}週${WEEK[i]} ${mdOf(schedDate(i))}${s.days[i].length ? ` <span class="n">${s.days[i].length}</span>` : ''}</button>`).join('')}</div>
+      <div class="chips sched-days no-print">${WEEK_ORDER.map(i => `<button class="chip ${i === day ? 'on' : ''} ${i === today ? 'now' : ''}" data-act="sched-day" data-v="${i}">${i === today ? '<i class="td">今天 </i>' : ''}<span>週${WEEK[i]}</span> <small>${mdOf(schedDate(i))}</small>${s.days[i].length ? ` <span class="n">${s.days[i].length}</span>` : ''}</button>`).join('')}</div>
       <section class="card">
         <div class="sec-head"><h2>${date.getMonth() + 1}/${date.getDate()}（${WEEK[day]}）${day === today ? '今天' : ''}的備料</h2><div class="spacer"></div>
           ${list.length ? `<span class="muted small">${left ? `還有 ${left} 項` : '全部完成 ✅'}</span>` : ''}</div>
@@ -1096,7 +1096,7 @@
   const LABEL_DOTS = 8;                       // 203 dpi ≒ 每公釐 8 點
   const LABEL_MAX_W = 72;                     // B3S 列印頭 576 點 = 72 公釐
   const LABEL_SITE = 'https://wu8858009.github.io/kitchen-sop/';
-  const NIIM_LIB = 'vendor/niimbluelib.min.js?v=60';
+  const NIIM_LIB = 'vendor/niimbluelib.min.js?v=61';
   const labelForm = { name: '', qty: '', note: '', made: null, exp: '' };   // made：null = 今天，'' = 不印
   let niim = null;                            // 已連線的印表機
   let labelQ = '';                            // 已儲存標籤的搜尋字
@@ -2209,6 +2209,8 @@
     w.style.maxHeight = Math.max(240, window.innerHeight - (w.getBoundingClientRect().top + window.scrollY) - nav - 16) + 'px';
   }
   window.addEventListener('resize', fitInv);
+  // 手機上說明文字只留一行，點一下展開
+  document.addEventListener('click', e => { const p = e.target.closest('.page > p.muted, .page p.hint'); if (p) p.classList.toggle('open'); });
   // 手機看整週時，一打開就捲到今天那一欄
   function invToToday() {
     const w = $('.inv-wrap'), c = $('.inv-table.week thead th.today');
