@@ -652,6 +652,70 @@ select { max-width: 100%; }
 .inv-ed-foot { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; }
 .inv-ed td.w-act { white-space: nowrap; width: 1%; border-right: 0; }
 .inv-ed td.w-act .icon { padding: 4px 6px; }
+/* 盤點訂貨：手機排版 */
+@media screen and (max-width: 719px) {
+  .inv-page { padding: 10px 12px; }
+  .inv-page .head-title, .inv-page .page-head .spacer { display: none; }
+  .inv-page .page-head { flex-wrap: nowrap; gap: 6px; margin-bottom: 8px; }
+  .inv-page .page-head .btn { flex: 1 1 0; min-width: 0; min-height: 38px; padding: 0 4px; font-size: .85rem; white-space: nowrap; justify-content: center; }
+  .inv-bar { flex-wrap: nowrap; gap: 6px; margin-bottom: 8px; }
+  .inv-bar b { flex: 1; text-align: center; white-space: nowrap; font-size: 1rem; }
+  .inv-bar .btn { min-height: 38px; padding: 0 14px; white-space: nowrap; }
+  .inv-bar .btn.ghost { padding: 0 8px; font-size: .85rem; }
+  .inv-days { display: grid; grid-template-columns: 1.35fr 1.35fr repeat(7, 1fr); gap: 3px; margin-bottom: 8px; }
+  .inv-days .chip { min-width: 0; min-height: 44px; padding: 0; border-radius: 10px; font-size: .9rem; line-height: 1.15; }
+  .inv-days .chip small { display: block; font-size: .66rem; font-weight: 400; letter-spacing: -.02em; opacity: .8; }
+  .inv-days .chip.now:not(.on) { border-color: var(--accent); color: var(--accent); }
+  .inv-wrap { border-radius: 8px; }
+  .inv-table tbody .nm { white-space: normal; line-height: 1.25; }
+  .inv-table tbody .nm small { display: block; font-size: .72rem; font-weight: 400; color: var(--muted); }
+  /* 單日：品名＋盤點＋訂貨，一畫面看完 */
+  .inv-table.one { width: 100%; min-width: 0; table-layout: fixed; }
+  .inv-table.one col.v { width: 28%; }
+  .inv-table.one .nm { min-width: 0; }
+  .inv-table.one input { min-width: 0; min-height: 46px; }
+  .inv-table.one thead th { background: var(--card); }
+  .inv-table.one thead tr.sub th { top: 44px; padding: 6px 4px; font-size: .85rem; }
+  .inv-table.one thead tr.sub th.nm { padding: 6px 10px; }
+  .inv-table.one td:not(.ord) { background: transparent; }
+  /* 整週：品名欄窄一點，多看幾天 */
+  .inv-table.week .nm { min-width: 74px; max-width: 86px; padding: 3px 6px; font-size: .88rem; }
+  .inv-table.week thead tr.rev th.nm { padding: 3px 6px; }
+  .inv-table.week input { min-width: 46px; padding: 2px; font-size: 16px; }
+  .inv-table.week thead tr.days th { top: 44px; height: 42px; }
+  .inv-table.week thead tr.sub th { top: 86px; }
+  .inv-table.week thead th.today { background: var(--card); }
+  details.hint summary { cursor: pointer; padding: 6px 0; }
+  /* 編輯品項：每個品項一張卡片，不用橫向捲動 */
+  .modal-back:has(.inv-ed-modal) { padding: 8px; }
+  .modal.inv-ed-modal { padding: 14px; max-height: 96vh; }
+  .inv-ed-modal .modal-btns { position: sticky; bottom: -14px; z-index: 2; margin: 8px 0 -14px; padding: 10px 0 14px; background: var(--card); border-top: 1px solid var(--line); }
+  .inv-ed-wrap { overflow: visible; max-height: none; border: 0; border-radius: 0; }
+  .inv-ed { display: block; min-width: 0; }
+  .inv-ed thead { display: none; }
+  .inv-ed tbody { display: grid; gap: 10px; }
+  .inv-ed tr { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 6px 8px; padding: 10px; border: 1px solid var(--line); border-radius: 10px; }
+  .inv-ed td { display: block; min-width: 0; width: auto !important; border: 0 !important; padding: 0; background: transparent !important; }
+  .inv-ed td::before { display: block; margin-bottom: 2px; font-size: .75rem; color: var(--muted); }
+  .inv-ed td.no { order: -2; grid-column: 1; align-self: end; padding: 0 0 10px; }
+  .inv-ed td.w-name { order: -1; grid-column: 2 / -1; }
+  .inv-ed td.w-code, .inv-ed td.w-spec { grid-column: span 3; }
+  .inv-ed td.w-unit, .inv-ed td.w-price, .inv-ed td.w-use, .inv-ed td.w-off, .inv-ed td.w-act { grid-column: span 2; }
+  .inv-ed td.w-name::before { content: "品名"; }
+  .inv-ed td.w-code::before { content: "品號"; }
+  .inv-ed td.w-spec::before { content: "規格"; }
+  .inv-ed td.w-unit::before { content: "單位"; }
+  .inv-ed td.w-price::before { content: "單價"; }
+  .inv-ed td.w-use::before { content: "萬元用量"; }
+  .inv-ed input:not([type=checkbox]) { min-height: 40px; padding: 4px 6px; border: 1px solid var(--line); border-radius: 6px; font-size: 16px; }
+  .inv-ed td.w-price input, .inv-ed td.w-use input { text-align: left; }
+  .inv-ed td.w-off { display: flex; align-items: center; gap: 4px; font-size: .8rem; }
+  .inv-ed td.w-off::before { order: 1; margin: 0; font-size: .78rem; color: inherit; white-space: nowrap; }
+  .inv-ed td:nth-child(8)::before { content: "暫不供貨"; }
+  .inv-ed td:nth-child(9)::before { content: "已停用"; }
+  .inv-ed td.w-act { display: flex; justify-content: flex-end; align-items: center; white-space: nowrap; }
+  .inv-ed td.w-act .icon { padding: 6px 5px; }
+}
 
 /* 寬螢幕：食譜的食材與步驟並排、設定分兩欄，避免一行拉太長 */
 @media screen and (min-width: 1200px) {
