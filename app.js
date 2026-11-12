@@ -2,7 +2,7 @@
 (() => {
   'use strict';
   const U = window.KUnits;
-  const APP_VERSION = '2.12.6';
+  const APP_VERSION = '2.12.7';
   const IS_DESKTOP = /[?&]desktop=1\b/.test(location.search);
 
   const $ = (s, el = document) => el.querySelector(s);
@@ -1096,7 +1096,7 @@
   const LABEL_DOTS = 8;                       // 203 dpi ≒ 每公釐 8 點
   const LABEL_MAX_W = 72;                     // B3S 列印頭 576 點 = 72 公釐
   const LABEL_SITE = 'https://wu8858009.github.io/kitchen-sop/';
-  const NIIM_LIB = 'vendor/niimbluelib.min.js?v=62';
+  const NIIM_LIB = 'vendor/niimbluelib.min.js?v=63';
   const labelForm = { name: '', qty: '', note: '', made: null, exp: '' };   // made：null = 今天，'' = 不印
   let niim = null;                            // 已連線的印表機
   let labelQ = '';                            // 已儲存標籤的搜尋字
@@ -2220,18 +2220,19 @@
 
   // 品項編輯：仿叫貨系統的表格（# 品號 品名 規格 單位名稱 單價 暫不供貨 已停用）；可從 Excel／叫貨系統複製多列貼上
   const invOn = x => !x.off && !x.stop;
+  const invCodeCmp = (a, b) => (!a) - (!b) || a.localeCompare(b, 'en', { numeric: true, sensitivity: 'base' });
   const INV_COLS = [['code', '品號', 'w-code'], ['name', '品名', 'w-name'], ['spec', '規格', 'w-spec'], ['unit', '單位名稱', 'w-unit'], ['price', '單價', 'w-price'], ['wan', '萬元使用量', 'w-use']];
   function invEdRow(x, k) {
     return `<tr data-id="${esc(x.id || '')}"${x.stop ? ' class="stopped" hidden' : ''}><td class="no">${k + 1}</td>
       ${INV_COLS.map(([f, , c]) => `<td class="${c}"><input data-f="${f}" value="${esc(x[f] || '')}" autocomplete="off"${f === 'price' || f === 'wan' ? ' inputmode="decimal"' : ''}${f === 'name' || f === 'unit' ? '' : ' data-ime="en"'}></td>`).join('')}
       <td class="w-off"><input type="checkbox" data-f="off" ${x.off ? 'checked' : ''} aria-label="暫不供貨"></td>
       <td class="w-off"><input type="checkbox" data-f="stop" ${x.stop ? 'checked' : ''} aria-label="已停用"></td>
-      <td class="w-act"><button class="icon" data-ed="up" title="上移">▲</button><button class="icon" data-ed="down" title="下移">▼</button><button class="icon" data-ed="rm" title="刪除">✕</button></td></tr>`;
+      <td class="w-act"><button class="icon" data-ed="rm" title="刪除">✕</button></td></tr>`;
   }
   async function invEditItems() {
     const pr = modal({
       title: '編輯盤點品項',
-      body: `<p class="small muted">可直接從叫貨系統或 Excel 選取多列複製，點一格後貼上（Ctrl+V）會依欄位順序填入。勾「暫不供貨」或「已停用」的品項不會出現在盤點表；已停用的品項平常收起來，要改回來時勾「顯示已停用的品項」。刪除的品項已填的數字會保留，加回同名品項就會再出現。</p>
+      body: `<p class="small muted">品項會依品號自動排序（沒有品號的排在最後）。可直接從叫貨系統或 Excel 選取多列複製，點一格後貼上（Ctrl+V）會依欄位順序填入。勾「暫不供貨」或「已停用」的品項不會出現在盤點表；已停用的品項平常收起來，要改回來時勾「顯示已停用的品項」。刪除的品項已填的數字會保留，加回同名品項就會再出現。</p>
         <div class="inv-ed-search"><input id="invEdQ" class="search" type="search" placeholder="搜尋品名、品號、規格…" autocomplete="off"><span class="muted small" id="invEdQN"></span></div>
         <div class="inv-ed-wrap"><table class="inv-ed"><thead><tr><th>#</th>${INV_COLS.map(([, l, c]) => `<th class="${c}">${l}</th>`).join('')}<th class="w-off">暫不供貨</th><th class="w-off">已停用</th><th></th></tr></thead>
         <tbody id="invEd">${db.inv.items.map(invEdRow).join('')}</tbody></table></div>
@@ -2247,6 +2248,17 @@
     box.querySelector('.modal').classList.add('inv-ed-modal');
     const renum = () => [...tb.rows].forEach((tr, k) => { tr.cells[0].textContent = k + 1; });
     const addRow = () => { tb.insertAdjacentHTML('beforeend', invEdRow({}, tb.rows.length)); return tb.rows[tb.rows.length - 1]; };
+    // 打完品號（離開那一格）就依品號重新排序，移動過的列閃一下
+    const sortRows = () => {
+      const rs = [...tb.rows], code = tr => tr.querySelector('[data-f="code"]').value.trim();
+      const sorted = rs.map((tr, k) => [tr, code(tr), k]).sort((x, y) => invCodeCmp(x[1], y[1]) || x[2] - y[2]).map(x => x[0]);
+      if (sorted.every((tr, k) => tr === rs[k])) return;
+      const f = document.activeElement;
+      sorted.forEach((tr, k) => { if (tr !== rs[k]) { tr.classList.remove('moved'); void tr.offsetWidth; tr.classList.add('moved'); } tb.appendChild(tr); });
+      renum();
+      if (f && tb.contains(f)) { if (document.activeElement !== f) f.focus({ preventScroll: true }); f.closest('tr').scrollIntoView({ block: 'center' }); }
+    };
+    tb.addEventListener('change', e => { if (e.target.dataset.f === 'code') setTimeout(sortRows); });
     // 上一列／下一列都跳過收起來的已停用品項
     const sib = (tr, d) => { let x = tr; do { x = d > 0 ? x.nextElementSibling : x.previousElementSibling; } while (x && x.hidden); return x; };
     const isStop = tr => tr.querySelector('[data-f="stop"]').checked;
@@ -2307,7 +2319,7 @@
         line.split('\t').forEach((v, j) => { const f = fields[c0 + j], i = f && tr.querySelector(`[data-f="${f}"]`); if (i) i.value = v.trim(); });
         tr = sib(tr, 1);
       });
-      renum();
+      renum(); sortRows();
     });
     const rows = await pr;
     if (rows == null) return;
@@ -2324,6 +2336,7 @@
       const prevCode = (db.inv.allCodes || {})[key];
       items.push({ id: r.id || old[key] || uid(), name, code: r.code || (r.id ? '' : prevCode || ''), spec: r.spec, unit: r.unit, price: r.price, wan: r.wan || '', off: !!r.off, stop: !!r.stop });
     }
+    items.sort((a, b) => invCodeCmp(a.code, b.code)); // 儲存時也照品號排（sort 是穩定的，沒品號的維持原順序）
     db.inv.allCodes = { ...db.inv.allCodes };
     db.inv.items.concat(items).forEach(x => { if (x.code) db.inv.allCodes[normName(x.name)] = x.code; });
     db.inv.allNames = old;
