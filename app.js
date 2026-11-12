@@ -2,7 +2,7 @@
 (() => {
   'use strict';
   const U = window.KUnits;
-  const APP_VERSION = '2.12.7';
+  const APP_VERSION = '2.12.8';
   const IS_DESKTOP = /[?&]desktop=1\b/.test(location.search);
 
   const $ = (s, el = document) => el.querySelector(s);
@@ -1096,7 +1096,7 @@
   const LABEL_DOTS = 8;                       // 203 dpi ≒ 每公釐 8 點
   const LABEL_MAX_W = 72;                     // B3S 列印頭 576 點 = 72 公釐
   const LABEL_SITE = 'https://wu8858009.github.io/kitchen-sop/';
-  const NIIM_LIB = 'vendor/niimbluelib.min.js?v=63';
+  const NIIM_LIB = 'vendor/niimbluelib.min.js?v=64';
   const labelForm = { name: '', qty: '', note: '', made: null, exp: '' };   // made：null = 今天，'' = 不印
   let niim = null;                            // 已連線的印表機
   let labelQ = '';                            // 已儲存標籤的搜尋字
@@ -2058,6 +2058,7 @@
     }
     const allNames = v.allNames && typeof v.allNames === 'object' ? { ...v.allNames } : {};
     const allCodes = v.allCodes && typeof v.allCodes === 'object' ? { ...v.allCodes } : {};
+    items.sort((a, b) => invCodeCmp(a.code, b.code)); // 一律照品號排（舊資料、其他裝置同步來的也是）
     return { items, itemsAt: has ? +v.itemsAt || 0 : 0, weeks, allNames, allCodes };
   }
   function mergeInv(a, b) {
@@ -2067,7 +2068,7 @@
       for (const [id, r] of Object.entries(w)) if (!o[id] || r.at >= o[id].at) o[id] = r;
     }
     const items = a.itemsAt >= b.itemsAt ? a : b;
-    return { items: items.items, itemsAt: items.itemsAt, weeks, allNames: { ...b.allNames, ...a.allNames }, allCodes: { ...b.allCodes, ...a.allCodes } };
+    return { items: items.items.slice().sort((x, y) => invCodeCmp(x.code, y.code)), itemsAt: items.itemsAt, weeks, allNames: { ...b.allNames, ...a.allNames }, allCodes: { ...b.allCodes, ...a.allCodes } };
   }
 
   const ymd = d => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
@@ -2220,7 +2221,7 @@
 
   // 品項編輯：仿叫貨系統的表格（# 品號 品名 規格 單位名稱 單價 暫不供貨 已停用）；可從 Excel／叫貨系統複製多列貼上
   const invOn = x => !x.off && !x.stop;
-  const invCodeCmp = (a, b) => (!a) - (!b) || a.localeCompare(b, 'en', { numeric: true, sensitivity: 'base' });
+  function invCodeCmp(a, b) { return (!a) - (!b) || String(a).localeCompare(String(b), 'en', { numeric: true, sensitivity: 'base' }); }
   const INV_COLS = [['code', '品號', 'w-code'], ['name', '品名', 'w-name'], ['spec', '規格', 'w-spec'], ['unit', '單位名稱', 'w-unit'], ['price', '單價', 'w-price'], ['wan', '萬元使用量', 'w-use']];
   function invEdRow(x, k) {
     return `<tr data-id="${esc(x.id || '')}"${x.stop ? ' class="stopped" hidden' : ''}><td class="no">${k + 1}</td>
