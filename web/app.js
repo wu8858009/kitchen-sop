@@ -2,7 +2,7 @@
 (() => {
   'use strict';
   const U = window.KUnits;
-  const APP_VERSION = '2.12.9';
+  const APP_VERSION = '2.12.10';
   const IS_DESKTOP = /[?&]desktop=1\b/.test(location.search);
 
   const $ = (s, el = document) => el.querySelector(s);
@@ -3313,6 +3313,18 @@
     for (const x of list) { const o = db.catPhotos.find(y => y.cat === x.cat); if (x.photoBad && o && o.photo) { x.photo = o.photo; x.photoBad = ''; n++; } }
     return n;
   }
+  // 雲端從來沒收到過的本機照片（例如後端更新前加的食材照片）：雲端「沒有照片」不是被刪掉，留下本機的，之後補傳
+  function keepUnsent(list, mine, known) {
+    const m = new Map(mine.filter(x => x.photo && !known.has(hashStr(x.photo))).map(x => [x.id, x.photo]));
+    let n = 0;
+    for (const x of list) if (!x.photo && !x.photoBad && m.has(x.id)) { x.photo = m.get(x.id); n++; }
+    return n;
+  }
+  function hasUnsent() {
+    const known = new Set(db.sync.photos);
+    return [...db.recipes, ...db.sops, ...db.catPhotos, ...db.recipes.flatMap(r => r.ingredients)].some(x => x.photo && !known.has(hashStr(x.photo)));
+  }
+  let unsentTried = false; // 每次開啟 App 檢查一次有沒有還沒上傳的照片
   function canFixPhotos(bad) {
     if (!bad || !bad.length) return false;
     const mine = new Set([...db.recipes, ...db.sops, ...db.catPhotos, ...db.recipes.flatMap(r => r.ingredients)].filter(x => x.photo).map(x => hashStr(x.photo)));
@@ -3324,7 +3336,10 @@
     if (!(L.db && L.db.inv)) remote.inv = db.inv;                  // 舊版後端沒有盤點訂貨：保留本機的
     if (!Array.isArray(L.db && L.db.catPhotos)) remote.catPhotos = db.catPhotos; // 舊版後端沒有分類封面：保留本機的
     if (!L.ingPhotos) keepIngPhotos(remote.recipes);                // 舊版後端不存食材照片：保留本機的
-    const healed = keepGoodPhotos(remote.recipes, db.recipes) + keepGoodPhotos(remote.sops, db.sops) + keepGoodCat(remote.catPhotos) > 0;
+    const known = new Set(db.sync.photos);
+    const unsent = L.ingPhotos ? keepUnsent(remote.recipes, db.recipes, known) + keepUnsent(remote.sops, db.sops, known)
+      + keepUnsent(remote.recipes.flatMap(r => r.ingredients), db.recipes.flatMap(r => r.ingredients), known) : 0;
+    const healed = keepGoodPhotos(remote.recipes, db.recipes) + keepGoodPhotos(remote.sops, db.sops) + keepGoodCat(remote.catPhotos) + unsent > 0;
     const sync = { ...db.sync, rev: L.rev, photos: L.photoHashes || db.sync.photos };
     if (merge) { db = mergeDb(db, remote); db.sync = { ...sync, dirty: true }; }
     else db = { ...remote, cloud: db.cloud, sync: { ...sync, dirty: healed } };
@@ -3366,6 +3381,7 @@
     if (!db.cloud || loadFailed) return setSync('off');
     if (cloudBusy) { cloudAgain = true; return; }
     cloudBusy = true;
+    if (!unsentTried) { unsentTried = true; if (!db.sync.dirty && hasUnsent()) db.sync.dirty = true; } // 補傳還沒到雲端的照片
     if (db.sync.dirty || cloudState.s !== 'ok') setSync('busy');
     try {
       for (let attempt = 0; attempt < 5; attempt++) {
